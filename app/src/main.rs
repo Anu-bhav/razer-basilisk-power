@@ -21,6 +21,7 @@ fn main() {
     // GUI-subsystem exe: stderr goes nowhere, so log to a file we can read
     // when something looks wrong in the tray.
     init_file_logger();
+    install_panic_hook();
     log::info!("Basilisk Power starting");
 
     let options = match Options::parse(std::env::args().skip(1)) {
@@ -67,4 +68,15 @@ fn init_file_logger() {
         }
     }
     builder.init();
+}
+
+/// Rust panic messages print to stderr, which a GUI-subsystem exe has
+/// nowhere to show — route them into the log file so a silent death is
+/// explainable after the fact.
+fn install_panic_hook() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        log::error!("Panic: {info}");
+        default_hook(info);
+    }));
 }
