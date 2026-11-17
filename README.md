@@ -102,9 +102,14 @@ cargo run --bin gen-icon   # writes assets/basilisk-power.ico
 ## Rainmeter skin
 
 A skin in the `BasiliskPower` skin folder reads `status.json` (30 s refresh)
-and shows the percentage, a bar, the source (WIRED / WIRELESS / DOCKED) and a
-CHARGING flag with the time-to-full estimate — styled after the Simplic /
-Mond skins (MesloLGS NF, cyan/magenta/white at low alpha, hover transparency).
+and shows the percentage, a histogram-style bar, the source (WIRED / WIRELESS /
+DOCKED) and a CHARGING flag with the time-to-full estimate — styled after the
+Simplic CPU and RAM widget (MesloLGS NF, cyan/magenta/white at low alpha).
+
+Rainmeter gotcha baked into the skin: `#@#` resolves to the skin's *own*
+`@Resources` folder (not the Skins root), so the skin ships its own copy of
+`Variables.inc` (copied from `Simplic\@Resources`). The MesloLGS NF fonts are
+installed system-wide, so no font copies are needed.
 
 ## Logs
 
