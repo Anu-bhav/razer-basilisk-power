@@ -1,0 +1,15 @@
+# Rust build output
+target/
+
+# Local experiments & research material, not part of the published app
+/basilisk-power/
+/razer-battery/
+/research/
+
+# Dev workspace manifest at the repo root (the published app lives in app/)
+/Cargo.toml
+/Cargo.lock
+
+# Scratch files
+icon-preview.png
+*.log
