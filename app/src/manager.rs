@@ -47,6 +47,17 @@ impl DeviceManager {
         }
     }
 
+    /// Close every open handle and rebuild the device list on the next fetch.
+    ///
+    /// A controller can keep a handle that the device no longer honours after
+    /// it re-enumerates (dock replugged, mouse re-paired). Dropping the API
+    /// and the controllers is the only reliable way to pick up the new paths.
+    pub fn reset(&mut self) {
+        self.device_controllers.clear();
+        self.stale.clear();
+        self.api = None;
+    }
+
     pub fn fetch_devices(&mut self) -> (Vec<u32>, Vec<u32>) {
         if self.api.is_none() {
             self.api = HidApi::new()

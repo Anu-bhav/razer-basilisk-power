@@ -359,6 +359,33 @@ fn get_brightness(hid: &HidDevice, tid: u8) -> Result<u8> {
     Ok(response[10])
 }
 
+/// Read the current brightness (0-255) of a target.
+///
+/// Uses the same device selection as `apply`: the mouse is addressed directly
+/// when plugged in or on its own dongle, and through the dock's relay when
+/// dock-paired. The dock's own underglow uses its own transaction id.
+pub fn read_brightness(target: Target) -> Option<u8> {
+    let api = HidApi::new().ok()?;
+    let dock_present = is_present(&api, PID_DOCK_PRO);
+    let (device, pid) = match target {
+        Target::Mouse => mouse_device(&api),
+        Target::Dock => (
+            "Mouse Dock Pro",
+            if dock_present { PID_DOCK_PRO } else { 0 },
+        ),
+    };
+    let _ = device;
+
+    if pid == 0 {
+        return None;
+    }
+    let hid = open(&api, pid).ok()?;
+    match target {
+        Target::Mouse => get_mouse_brightness(&hid).ok(),
+        Target::Dock => get_dock_brightness(&hid).ok(),
+    }
+}
+
 /// Parse a `RRGGBB` or `#RRGGBB` string.
 pub fn parse_hex_color(value: &str) -> Option<Rgb> {
     let hex = value.trim().trim_start_matches('#');

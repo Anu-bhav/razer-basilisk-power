@@ -43,6 +43,11 @@ const DOCK_DETECT_IDLE: Duration = Duration::from_secs(8);
 /// Window of level samples used for the time-to-full estimate.
 const CHARGE_HISTORY_WINDOW: Duration = Duration::from_secs(45 * 60);
 
+/// Typical dock charge rate for this mouse, in percent per minute. Used for
+/// the time-to-full estimate until the real slope has been measured from two
+/// rising samples -- roughly a percent a minute from empty to full on the dock.
+const TYPICAL_CHARGE_RATE: f64 = 1.0;
+
 /// Adaptive battery poll interval: check often when the battery is low or
 /// charging, rarely when it is healthy — a full battery doesn't need
 /// watching every 5 minutes. While the user is idle the mouse is likely
@@ -153,6 +158,9 @@ impl MemoryDevice {
 
 enum WorkerCommand {
     Refresh,
+    /// Close every HID handle and rebuild the device list. Useful after the
+    /// dock or mouse has re-enumerated and a stale handle keeps failing.
+    Reconnect,
 }
 
 pub struct TrayInner {
@@ -163,6 +171,7 @@ struct MenuItems {
     /// Live status line, not clickable.
     status: MenuItem,
     refresh: MenuItem,
+    reconnect: MenuItem,
     open_log: MenuItem,
     notifications: CheckMenuItem,
     quit: MenuItem,
@@ -180,6 +189,7 @@ impl TrayInner {
         let items = MenuItems {
             status: MenuItem::new("Starting…", false, None),
             refresh: MenuItem::new("Refresh now", true, None),
+            reconnect: MenuItem::new("Reconnect devices", true, None),
             open_log: MenuItem::new("Open log", true, None),
             notifications: CheckMenuItem::new("Notifications", true, true, None),
             quit: MenuItem::new("Exit", true, None),
@@ -189,6 +199,7 @@ impl TrayInner {
             &items.status,
             &PredefinedMenuItem::separator(),
             &items.refresh,
+            &items.reconnect,
             &items.open_log,
             &items.notifications,
             &PredefinedMenuItem::separator(),
@@ -620,6 +631,11 @@ impl TrayApp {
                         info!("Manual refresh requested");
                         force_refresh = true;
                     }
+                    Ok(WorkerCommand::Reconnect) => {
+                        info!("Reconnect requested; reopening HID devices");
+                        manager.reset();
+                        force_refresh = true;
+                    }
                     Err(RecvTimeoutError::Timeout) => {}
                     Err(RecvTimeoutError::Disconnected) => break,
                 }
@@ -658,6 +674,10 @@ impl TrayApp {
                 tao::event::Event::UserEvent(TrayEvent::MenuEvent(event)) => {
                     if event.id == menu_items.refresh.id() {
                         let _ = cmd_tx.send(WorkerCommand::Refresh);
+                    }
+
+                    if event.id == menu_items.reconnect.id() {
+                        let _ = cmd_tx.send(WorkerCommand::Reconnect);
                     }
 
                     if event.id == menu_items.open_log.id() {
@@ -897,27 +917,34 @@ fn read_battery(
         if level == Some(99) {
             device.eta_full_min = Some(1);
         }
-    }
-    if device.eta_full_min.is_none()
-        && device.is_charging
-        && device.charge_history.len() >= 2
-    {
-        let (t0, l0) = device.charge_history[0];
-        let (t1, l1) = *device.charge_history.last().unwrap();
-        let span_min = (t1 - t0).as_secs_f64() / 60.0;
-        let gained = l1 - l0;
-        // Any upward movement at all gives a usable rate; a minute of span is
-        // enough to divide by without amplifying noise.
-        if span_min >= 1.0 && gained > 0 {
-            let rate = gained as f64 / span_min; // % per minute
-            let remaining = (100 - l1) as f64;
-            if remaining > 0.0 {
-                let eta = (remaining / rate).round() as i32;
-                // Below a minute, say 1; cap at ten hours so a nearly-flat
-                // slope cannot report something absurd.
-                device.eta_full_min = Some(eta.clamp(1, 600));
+
+        // Prefer the measured slope, but only once the level has actually been
+        // seen climbing across two samples. Waiting for that left the line
+        // blank for the first several minutes of a dock charge, which is
+        // exactly when it is wanted.
+        let mut measured: Option<i32> = None;
+        if device.charge_history.len() >= 2 {
+            let (t0, l0) = device.charge_history[0];
+            let (t1, l1) = *device.charge_history.last().unwrap();
+            let span_min = (t1 - t0).as_secs_f64() / 60.0;
+            let gained = l1 - l0;
+            // A minute of span is enough to divide by without amplifying noise.
+            if span_min >= 1.0 && gained > 0 {
+                let rate = gained as f64 / span_min; // % per minute
+                let remaining = (100 - l1) as f64;
+                if remaining > 0.0 {
+                    let eta = (remaining / rate).round() as i32;
+                    measured = Some(eta.clamp(1, 600));
+                }
             }
         }
+
+        device.eta_full_min = measured.or_else(|| {
+            // Fallback: this mouse charges at roughly a percent a minute on the
+            // dock. Enough for a useful line while the real slope is measured.
+            level.map(|l| ((100 - l).max(1) as f64 / TYPICAL_CHARGE_RATE).round() as i32)
+                .map(|eta| eta.clamp(1, 600) as i32)
+        });
     }
 }
 

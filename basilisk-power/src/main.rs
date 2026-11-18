@@ -32,6 +32,7 @@ enum Mode {
     List,
     SetColor,
     GetColor,
+    WatchLed,
 }
 
 // ── Rendering ────────────────────────────────────────────────────────────────
@@ -211,12 +212,29 @@ fn print_colors(target: &str) {
     for reading in lighting::read_colors(&targets) {
         let hex = |rgb: lighting::Rgb| format!("#{:02X}{:02X}{:02X}", rgb.0, rgb.1, rgb.2);
         match reading.color {
-            Some(rgb) => println!(
-                "{} ({}) -> {} [static]",
-                reading.target.label(),
-                reading.device,
-                hex(rgb)
-            ),
+            Some(rgb) => {
+                // This firmware can answer a brightness read with 0 even while
+                // the LEDs are visibly on. Treat 0 as "no reading" rather than
+                // printing a misleading 0% beside a lit device.
+                let bright = lighting::read_brightness(reading.target)
+                    .filter(|v| *v > 0)
+                    .map(|v| format!(", brightness {}%", (v as u16 * 100 / 255)));
+                match bright {
+                    Some(b) => println!(
+                        "{} ({}) -> {} [static{}]",
+                        reading.target.label(),
+                        reading.device,
+                        hex(rgb),
+                        b
+                    ),
+                    None => println!(
+                        "{} ({}) -> {} [static]",
+                        reading.target.label(),
+                        reading.device,
+                        hex(rgb)
+                    ),
+                }
+            }
             None => {
                 let effect = reading
                     .effect
@@ -247,6 +265,40 @@ fn print_colors(target: &str) {
     }
 }
 
+/// Poll the stored LED colours and effect ids until interrupted.
+///
+/// Useful for confirming that a colour was written and that the device kept
+/// it -- for example while checking that the charging animation comes back.
+fn watch_led() {
+    println!("Watching LED state (Ctrl-C to stop)");
+    loop {
+        let ts = chrono::Local::now().format("%H:%M:%S");
+        let mut line = format!("{ts}");
+        for target in [lighting::Target::Mouse, lighting::Target::Dock] {
+            let state = lighting::read_colors(&[target])
+                .into_iter()
+                .next()
+                .map(|r| match r.color {
+                    Some(rgb) => format!(
+                        "#{:02X}{:02X}{:02X} effect={:#04x}",
+                        rgb.0,
+                        rgb.1,
+                        rgb.2,
+                        r.effect.unwrap_or(0)
+                    ),
+                    None => r
+                        .error
+                        .unwrap_or_else(|| "no static colour".to_string()),
+                })
+                .unwrap_or_else(|| "no answer".to_string());
+            line.push_str(&format!("  |  {}: {state}", target.key()));
+        }
+        println!("{line}");
+        let _ = std::io::stdout().flush();
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+}
+
 fn help() {
     println!(
         "basilisk-power-cli — Razer Basilisk V3 Pro battery + LED tool\n\
@@ -264,7 +316,8 @@ fn help() {
          \x20 --dock-color RRGGBB    static LED colour for the dock only\n\
          \x20 --target T     mouse | dock | both (with --set-color / --get-color)\n\
          \x20 --brightness N  LED brightness 0-100 (with any colour option)\n\
-         \x20 --get-color    read the stored static colour from each device\n\
+         \x20 --get-color    read the stored static colour and brightness\n\
+         \x20 --watch-led    poll the stored LED colours and effects once a second\n\
          \x20 --debug        verbose HID logging\n\
          \x20 -h, --help     this help\n\
          \n\
@@ -332,6 +385,7 @@ fn main() {
                 }
             }
             "--get-color" => mode = Mode::GetColor,
+            "--watch-led" => mode = Mode::WatchLed,
             "--target" => match it.next().as_deref() {
                 Some(value @ ("mouse" | "dock" | "both")) => target = value.to_string(),
                 _ => {
@@ -369,6 +423,7 @@ fn main() {
         Mode::Probe => probe(),
         Mode::List => list(),
         Mode::GetColor => print_colors(&target),
+        Mode::WatchLed => watch_led(),
         Mode::SetColor => {
             let mut requests = Vec::new();
 

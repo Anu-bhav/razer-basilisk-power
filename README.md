@@ -55,8 +55,9 @@ with Mouse Dock Pro support and several new features. MIT licensed.
   (throttled to one per 10 s) so the tooltip shows the latest charging data.
 - **Time-to-full estimate.** While charging, the tooltip and widget show
   `≈ N min to full` from the recent level slope.
-- **Status line in the menu**, a **Notifications** on/off toggle,
-  and an **Open log** item.
+- **Status line in the menu**, **Refresh now**, **Reconnect devices** (closes
+  every HID handle and rescans, for when a re-plugged dock or mouse keeps a
+  stale handle), a **Notifications** on/off toggle, and **Open log**.
 - **Digits mode.** Launch with `--digits` to draw the raw battery number in
   the tray instead of the battery glyph.
 - **`status.json` feed + `battery-history.csv`.** Written to
@@ -137,15 +138,24 @@ The app icon is generated offline by the bundled `gen-icon` tool:
 cd app && cargo run --bin gen-icon   # writes assets/basilisk-power.ico
 ```
 
-## Installing
+## Deploying
 
-Copy the exes to `%LOCALAPPDATA%\BasiliskPower\`:
+[`deploy.ps1`](deploy.ps1) is the supported way to update an installed copy.
+It rebuilds all three executables in WSL, stops the running tray, copies the
+fresh binaries, and verifies every copy by SHA-256. It also mirrors the skin,
+restarts Rainmeter so the new `.ini` actually loads, and removes the old
+`status.json` so the tray regenerates it. Any build or copy failure exits
+non-zero instead of leaving a stale exe behind.
 
-```sh
-cp target/x86_64-pc-windows-gnu/release/basilisk-power-cli.exe  "$LOCALAPPDATA/BasiliskPower/"
-cp target/x86_64-pc-windows-gnu/release/led-picker.exe           "$LOCALAPPDATA/BasiliskPower/"
-cp app/target/x86_64-pc-windows-gnu/release/basilisk-power.exe   "$LOCALAPPDATA/BasiliskPower/"
+PowerShell cannot run a script directly from a UNC path, so copy it out first:
+
+```powershell
+Copy-Item <repo>\deploy.ps1 "$env:TEMP\opencode\deploy.ps1" -Force
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\opencode\deploy.ps1" -Start
 ```
+
+`-Start` launches the tray afterwards; `-SkipBuild` copies the existing build
+output; `-SkipSkin` leaves Rainmeter alone.
 
 Then either add a `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` value
 pointing at `basilisk-power.exe`, or drop a shortcut in `shell:startup`.
@@ -164,7 +174,8 @@ pointing at `basilisk-power.exe`, or drop a shortcut in `shell:startup`.
 | `--dock-color RRGGBB` | Static LED colour for the dock only |
 | `--target T` | `mouse` \| `dock` \| `both` (with `--set-color` / `--get-color`) |
 | `--brightness N` | LED brightness 0-100 (with any colour option) |
-| `--get-color` | Read the stored static colour from each device |
+| `--get-color` | Read the stored static colour and brightness from each device |
+| `--watch-led` | Print both devices' stored colour/effect once a second until stopped |
 | `--digits` | Tray icon shows the raw percentage instead of the glyph |
 | `--simulate-battery N` | Report N% for every device (test toasts) |
 | `--simulate-game` | Behave as if a fullscreen game is running |
@@ -201,11 +212,13 @@ It reads `status.json` every second and shows:
 - the source: `DOCKED` while charging, `WIRELESS` otherwise
 - a time-to-full estimate while charging
 - a cyan lightning bolt with a soft white glow, pulsing while charging
+- a charging breath: the magenta fill dims and brightens on the same clock,
+  with a faint magenta wash inside the body
 
-Colours come from the Simplic theme: `#FontColor1#` cyan, `#FontColor2#`
-magenta, `#FontColor3#` white, MesloLGS NF. The battery fill uses the exact
-composite the CPU/RAM widget's line graph renders as (`rgb(31,84,131)`) so the
-two widgets read as the same blue.
+Colours come from the Simplic theme: `#NeonBlue#` for the idle fill and the
+percentage, `#FontColor2_Neon#` for charging and the source word,
+`#FontColor3#` white, MesloLGS NF. The blue is the same vivid neon the CPU/RAM
+line graph uses, so the two widgets read as one set.
 
 **Geometry is frozen.** Do not change any `X=`/`Y=` value — see
 [`skin/LAYOUT.md`](skin/LAYOUT.md) before touching them.
@@ -213,7 +226,8 @@ two widgets read as the same blue.
 ### Install
 
 Copy `skin/` into `%USERPROFILE%\Documents\Rainmeter\Skins\BasiliskPower\`,
-then refresh Rainmeter.
+then refresh Rainmeter. `deploy.ps1` does this for you (see
+[Deploying](#deploying)).
 
 ### Data schema
 
@@ -267,6 +281,10 @@ These cost real debugging time; they are documented in the skin comments too.
 - The WebParser regex must not use the `(?U)` flag or `\d+` captures a single
   digit.
 - A dynamic `!SetOption` on `UpdateDivider` after load is ignored.
+- **Rainmeter does not reload a skin when its `.ini` is replaced from outside
+  the app.** The old layout keeps running until Rainmeter restarts, which
+  makes a correct change look broken. `deploy.ps1` restarts it for this
+  reason; when editing by hand, right-click the skin → *Refresh skin*.
 
 ## Disk hygiene
 
