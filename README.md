@@ -103,15 +103,23 @@ cargo run --bin gen-icon   # writes assets/basilisk-power.ico
 
 ## Rainmeter skin
 
-A skin in the `BasiliskPower` skin folder reads `status.json` (30 s refresh)
-and shows the percentage, a histogram-style bar, the source (WIRED / WIRELESS /
-DOCKED) and a CHARGING flag with the time-to-full estimate — styled after the
-Simplic CPU and RAM widget (MesloLGS NF, cyan/magenta/white at low alpha).
+A skin in the `BasiliskPower` skin folder reads `status.json` (fetched every
+2 s) and shows a transparent battery glyph whose fill tracks the real level
+(cyan idle, magenta while charging, with a bolt overlay), the percentage, the
+source (WIRED / WIRELESS / DOCKED) and a CHARGING flag with the time-to-full
+estimate - styled after the Simplic CPU and RAM widget (MesloLGS NF,
+cyan/magenta/white).
 
-Rainmeter gotcha baked into the skin: `#@#` resolves to the skin's *own*
+The complete skin is mirrored in [`skin/`](skin/) and its hand-tuned meter
+geometry is frozen - see [`skin/LAYOUT.md`](skin/LAYOUT.md) before touching
+any `X=`/`Y=` value.
+
+Rainmeter gotchas baked into the skin: `#@#` resolves to the skin's *own*
 `@Resources` folder (not the Skins root), so the skin ships its own copy of
 `Variables.inc` (copied from `Simplic\@Resources`). The MesloLGS NF fonts are
-installed system-wide, so no font copies are needed.
+installed system-wide, so no font copies are needed. Bar meters need explicit
+`MinValue`/`MaxValue` (they default to 0..1), and the WebParser regex must not
+use the `(?U)` flag or `\d+` captures a single digit.
 
 ## Logs
 
