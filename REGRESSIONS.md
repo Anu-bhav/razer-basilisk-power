@@ -46,7 +46,13 @@ charging code.
 - No boxed/histogram look, no divider, no extra labels.
 - The charging pulse animates the fill, bolt and halo; idle is static.
 - A dead feed may show `--` / `NO SIGNAL`, but **recovery must restore the real
-  meters on the next fresh write** (test both directions).
+  meters on the next fresh write** (test both directions). `verify.ps1` writes
+  an epoch 10 minutes in the past for the stale case, then a current one.
+- Freshness is `now - updated_unix` from `freshness.lua`, threshold 90 s
+  (`StaleSeconds`). The charging look and ETA come back even when the charging
+  flag itself never changed while the feed was dead.
+- Any simulated feed must include `updated_unix`; without it the widget is
+  correctly treated as stale.
 - Rainmeter does not reload an externally replaced `.ini`; restart it (the
   deploy script does) before judging a skin change.
 

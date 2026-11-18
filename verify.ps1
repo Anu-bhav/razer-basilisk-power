@@ -79,9 +79,9 @@ function Wait-HealthyFeed([int]$Seconds = 30) {
     return $false
 }
 
-function Write-FakeFeed([int]$Level, [int]$Charging, [string]$Source, [int]$Eta) {
+function Write-FakeFeed([int]$Level, [int]$Charging, [string]$Source, [int]$Eta, [int]$AgeSeconds = 0) {
     $now = (Get-Date).ToString("HH:mm")
-    $unix = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+    $unix = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - $AgeSeconds
     $json = '{"level":' + $Level + ',"charging":' + $Charging + ',"source":"' + $Source +
             '","eta_full_min":' + $Eta + ',"name":"Regression Test","updated":"' + $now +
             '","updated_unix":' + $unix + ',"poll":60}'
@@ -207,6 +207,22 @@ function Measure-FillBrightness([System.Drawing.Bitmap]$Bmp) {
     return $sum
 }
 
+function Measure-TextPixels([System.Drawing.Bitmap]$Bmp, [int]$X0, [int]$Y0, [int]$X1, [int]$Y1) {
+    $grey = 0; $magenta = 0; $blue = 0
+    $xEnd = [Math]::Min($X1, $Bmp.Width)
+    $yEnd = [Math]::Min($Y1, $Bmp.Height)
+    for ($y = $Y0; $y -lt $yEnd; $y++) {
+        for ($x = $X0; $x -lt $xEnd; $x++) {
+            $p = $Bmp.GetPixel($x, $y)
+            if ($p.R -gt 90 -and $p.G -gt 90 -and $p.B -gt 90 -and
+                [Math]::Abs($p.R - $p.G) -lt 24 -and [Math]::Abs($p.G - $p.B) -lt 28) { $grey++ }
+            if ($p.R -gt 150 -and $p.B -gt 150 -and $p.G -lt 90) { $magenta++ }
+            if ($p.B -gt 150 -and $p.G -gt 80 -and $p.R -lt 60) { $blue++ }
+        }
+    }
+    return @{ Grey = $grey; Magenta = $magenta; Blue = $blue }
+}
+
 if (-not $SkipWidget) {
     Write-Host "`n=== Widget states ===" -ForegroundColor Cyan
     if (-not (Get-Process Rainmeter -ErrorAction SilentlyContinue)) {
@@ -225,6 +241,39 @@ if (-not $SkipWidget) {
         Check "idle fill is neon blue" ($m.Blue -gt 600) "blue=$($m.Blue)"
         Check "idle fill is not magenta" ($m.Magenta -lt 60) "magenta=$($m.Magenta)"
         Check "idle hides ETA row" ($bmp.Height -le 70) "height=$($bmp.Height)"
+        $t = Measure-TextPixels $bmp 125 44 200 58
+        Check "idle source word is magenta" ($t.Magenta -gt 20) "magenta=$($t.Magenta), grey=$($t.Grey)"
+        $bmp.Dispose()
+    }
+
+    # Dead feed: an epoch 10 minutes old must flip the widget to placeholders
+    # instead of freezing on the last reading.
+    Write-FakeFeed -Level 50 -Charging 0 -Source "wireless" -Eta -1 -AgeSeconds 600
+    Start-Sleep -Seconds 5
+    $bmp = Get-WidgetShot
+    Check "stale widget visible" ($null -ne $bmp)
+    if ($bmp) {
+        $m = Measure-Battery $bmp
+        Check "stale feed hides the fill" ($m.Blue -lt 80 -and $m.Magenta -lt 80) "blue=$($m.Blue), magenta=$($m.Magenta)"
+        $t = Measure-TextPixels $bmp 125 44 200 58
+        Check "stale feed shows NO SIGNAL" ($t.Grey -gt 20 -and $t.Magenta -lt 15) "grey=$($t.Grey), magenta=$($t.Magenta)"
+        $l = Measure-TextPixels $bmp 140 18 200 40
+        Check "stale feed shows --" ($l.Grey -gt 15 -and $l.Blue -lt 20) "grey=$($l.Grey), blue=$($l.Blue)"
+        Check "stale feed hides ETA row" ($bmp.Height -le 70) "height=$($bmp.Height)"
+        $bmp.Dispose()
+    }
+
+    # Recovery: a fresh write must restore the real meters, not leave the
+    # placeholders on screen.
+    Write-FakeFeed -Level 50 -Charging 0 -Source "wireless" -Eta -1
+    Start-Sleep -Seconds 5
+    $bmp = Get-WidgetShot
+    Check "recovered widget visible" ($null -ne $bmp)
+    if ($bmp) {
+        $m = Measure-Battery $bmp
+        Check "recovered feed restores blue fill" ($m.Blue -gt 600) "blue=$($m.Blue)"
+        $t = Measure-TextPixels $bmp 125 44 200 58
+        Check "recovered feed restores source word" ($t.Magenta -gt 20 -and $t.Grey -lt 20) "grey=$($t.Grey), magenta=$($t.Magenta)"
         $bmp.Dispose()
     }
 

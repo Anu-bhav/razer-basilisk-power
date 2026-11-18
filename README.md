@@ -249,6 +249,9 @@ It reads `status.json` every second and shows:
 - a cyan lightning bolt with a soft white glow, pulsing while charging
 - a charging breath: the magenta fill dims and brightens on the same clock,
   with a faint magenta wash inside the body
+- a dead feed is visible, not frozen: after 90 s without a write the fill
+  disappears and the text changes to `--` / `NO SIGNAL`. The next valid write
+  restores the real meters (and the charging look if it is still charging).
 
 Colours come from the Simplic theme: `#NeonBlue#` for the idle fill and the
 percentage, `#FontColor2_Neon#` for charging and the source word,
@@ -270,7 +273,7 @@ then refresh Rainmeter. `deploy.ps1` does this for you (see
 `%LOCALAPPDATA%\BasiliskPower\status.json`:
 
 ```json
-{"level":61,"charging":1,"source":"dock","eta_full_min":53,"name":"Razer Basilisk V3 Pro (Mouse Dock Pro)","updated":"14:32","poll":60}
+{"level":61,"charging":1,"source":"dock","eta_full_min":53,"name":"Razer Basilisk V3 Pro (Mouse Dock Pro)","updated":"14:32","updated_unix":1732026720,"poll":60}
 ```
 
 | Field | Meaning |
@@ -293,9 +296,13 @@ For testing the skin without hardware, stop the tray and write `status.json`
 yourself:
 
 ```powershell
-'{"level":42,"charging":1,"source":"dock","eta_full_min":18,"name":"X","updated":"14:32","poll":60}' |
+$unix = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+'{"level":42,"charging":1,"source":"dock","eta_full_min":18,"name":"X","updated":"14:32","updated_unix":' + $unix + ',"poll":60}' |
   Set-Content "$env:LOCALAPPDATA\BasiliskPower\status.json" -Encoding ASCII
 ```
+
+`updated_unix` is required for the freshness check. A hand-written feed
+without it is treated as stale and shows `NO SIGNAL`.
 
 ### Rainmeter gotchas baked into the skin
 
@@ -321,6 +328,10 @@ These cost real debugging time; they are documented in the skin comments too.
 - A `status.json` that is replaced while Rainmeter reads it can parse as a
   truncated document. The tray writes `status.json.tmp` and renames it into
   place, so readers only ever see a complete file.
+- Freshness is computed by `@Resources\freshness.lua` from `updated_unix`.
+  It reads the file itself instead of adding a sixth capture group: Rainmeter
+  rejected the longer WebParser expression at runtime even though it was
+  valid PCRE. Keep the proven `measureStatus` regex alone.
 - **Rainmeter does not reload a skin when its `.ini` is replaced from outside
   the app.** The old layout keeps running until Rainmeter restarts, which
   makes a correct change look broken. `deploy.ps1` restarts it for this

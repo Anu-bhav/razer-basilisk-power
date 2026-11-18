@@ -125,6 +125,7 @@ if (-not $SkipSkin) {
     $pairs = @(
         @{ Src = "basilisk.ini";             Dst = (Join-Path $Skin "basilisk.ini") }
         @{ Src = "@Resources\Variables.inc"; Dst = (Join-Path $Skin "@Resources\Variables.inc") }
+        @{ Src = "@Resources\freshness.lua"; Dst = (Join-Path $Skin "@Resources\freshness.lua") }
     )
     foreach ($p in $pairs) {
         $src = Join-Path $skinSrc $p.Src
