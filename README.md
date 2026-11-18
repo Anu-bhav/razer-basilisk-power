@@ -210,6 +210,7 @@ pointing at `basilisk-power.exe`, or drop a shortcut in `shell:startup`.
 | `--brightness N` | LED brightness 0-100 (with any colour option) |
 | `--get-color` | Read the stored static colour and brightness from each device |
 | `--watch-led` | Print both devices' stored colour/effect once a second until stopped |
+| `--history [W]` | Summarise `battery-history.csv`: `7d` (default), `24h`, or `all` |
 | `--version` | Print the version and git hash, then exit |
 | `--digits` | Tray icon shows the raw percentage instead of the glyph |
 | `--simulate-battery N` | Report N% for every device (test toasts) |
@@ -222,6 +223,7 @@ Examples:
 ```sh
 basilisk-power-cli --mouse-color 00CCFF --dock-color FF2BFF --brightness 100
 basilisk-power-cli --get-color
+basilisk-power-cli --history 7d
 ```
 
 ## `led-picker`
@@ -289,6 +291,24 @@ then refresh Rainmeter. `deploy.ps1` does this for you (see
 
 `battery-history.csv` appends a row per reading (`date,time,level,charging,source`),
 trimmed to 2000 rows / 1 MB.
+
+### History insights
+
+`basilisk-power-cli --history` turns that CSV into a short report:
+
+```text
+Battery history — last 7d
+  window: 2026-11-12 09:00 → 2026-11-19 01:48 (1832 samples)
+  level: latest 94%, min 41%, max 100%, average 86.2%
+  charging: 74 of 1832 samples (4%), 5 sessions
+  drain: 6.4%/h off the dock (12.1 h observed, 15.6 h per 100%)
+```
+
+- `--history 24h` or `--history all` change the window; the default is `7d`.
+- Charge sessions merge dropouts less than 20 minutes apart, so a dock relay
+  that briefly reports "not charging" at 100 % does not inflate the count.
+- Drain uses only downward steps between off-dock samples and skips gaps over
+  four hours (sleep/shutdown), which would otherwise understate the rate.
 
 ### Simulating the feed
 

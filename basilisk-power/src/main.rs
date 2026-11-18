@@ -23,6 +23,8 @@ use razer_battery::devices::custom_device;
 use razer_battery::lighting;
 use razer_battery::{BatterySession, RazerError};
 
+mod history;
+
 use common::{label, measure_all, next_wait, Row};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -36,6 +38,7 @@ enum Mode {
     SetColor,
     GetColor,
     WatchLed,
+    History(history::Window),
 }
 
 // ── Rendering ────────────────────────────────────────────────────────────────
@@ -340,6 +343,7 @@ fn help() {
          \x20 --brightness N  LED brightness 0-100 (with any colour option)\n\
          \x20 --get-color    read the stored static colour and brightness\n\
          \x20 --watch-led    poll the stored LED colours and effects once a second\n\
+         \x20 --history [W]  summarise battery-history.csv (7d default, 24h, all)\n\
          \x20 --debug        verbose HID logging\n\
          \x20 --version      print the version and exit\n\
          \x20 -h, --help     this help\n\
@@ -359,7 +363,7 @@ fn main() {
     let mut target = String::from("both");
     let mut brightness: Option<u8> = None;
 
-    let mut it = std::env::args().skip(1);
+    let mut it = std::env::args().skip(1).peekable();
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--version" | "-V" => {
@@ -413,6 +417,23 @@ fn main() {
             }
             "--get-color" => mode = Mode::GetColor,
             "--watch-led" => mode = Mode::WatchLed,
+            "--history" => {
+                // The window is optional; only consume the next argument when
+                // it is a value rather than another flag.
+                let window = match it.peek() {
+                    Some(next) if !next.starts_with('-') => {
+                        history::Window::parse(&it.next().unwrap())
+                    }
+                    _ => history::Window::parse("7d"),
+                };
+                match window {
+                    Ok(window) => mode = Mode::History(window),
+                    Err(e) => {
+                        eprintln!("{e}");
+                        std::process::exit(2);
+                    }
+                }
+            }
             "--target" => match it.next().as_deref() {
                 Some(value @ ("mouse" | "dock" | "both")) => target = value.to_string(),
                 _ => {
@@ -451,6 +472,20 @@ fn main() {
         Mode::List => list(),
         Mode::GetColor => print_colors(&target),
         Mode::WatchLed => watch_led(),
+        Mode::History(window) => {
+            let Some(path) = history::default_path() else {
+                eprintln!("LOCALAPPDATA is not set, so the history file cannot be found");
+                std::process::exit(2);
+            };
+            match history::load(&path, window) {
+                Ok((_summary, text)) => print!("{text}"),
+                Err(e) => {
+                    eprintln!("cannot read {}: {e}", path.display());
+                    eprintln!("The tray writes this file while it is running.");
+                    std::process::exit(1);
+                }
+            }
+        }
         Mode::SetColor => {
             let mut requests = Vec::new();
 
