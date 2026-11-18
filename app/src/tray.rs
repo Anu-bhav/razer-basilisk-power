@@ -13,8 +13,8 @@ use std::{
 use crate::{
     battery_icon,
     debounce::{Debouncer, Kind},
-    devices,
     feed::{self, DeviceSnapshot, Feed},
+    led,
     manager::DeviceManager,
     notify::Notify,
     options::Options,
@@ -37,10 +37,6 @@ const CONNECTION_DEBOUNCE: Duration = Duration::from_secs(10);
 /// Minimum gap between hover-triggered refreshes, so keeping the cursor on
 /// the icon doesn't hammer the dock's RF relay.
 const HOVER_REFRESH_INTERVAL: Duration = Duration::from_secs(10);
-/// A charging state inferred from the level climbing expires this long
-/// after the last rise — by then the mouse must be off the dock, since
-/// real charging adds roughly a percent every few minutes.
-const CHARGE_LATCH_WINDOW: Duration = Duration::from_secs(6 * 60);
 /// Input idle at which the mouse was likely just docked (or parked):
 /// probe immediately instead of waiting for the next scheduled poll.
 const DOCK_DETECT_IDLE: Duration = Duration::from_secs(8);
@@ -81,6 +77,33 @@ fn adaptive_wait(level: Option<i32>, charging: bool, system_idle: bool) -> Durat
     }
 }
 
+/// How soon the skin should next read status.json.
+///
+/// This is deliberately separate from the battery's own adaptive interval:
+/// the skin only needs to look again quickly when something actually changed.
+/// `read_this_round` is true when this tick re-read a device, which happens on
+/// every level or charge-state change.
+fn poll_hint(
+    level: Option<i32>,
+    charging: bool,
+    system_idle: bool,
+    read_this_round: bool,
+) -> u64 {
+    if read_this_round {
+        // Something just changed: the skin's fast path is poll <= 2.
+        return 1;
+    }
+    // Nothing new. Stay responsive while the level is actively moving
+    // (charging) and relax once it settles.
+    let adaptive = adaptive_wait(level, charging, system_idle);
+    let secs = adaptive.as_secs();
+    if secs <= 15 {
+        5
+    } else {
+        secs
+    }
+}
+
 /// Fake device used by `--simulate-battery` when no mouse is plugged in.
 const SIMULATED_PID: u32 = 0;
 
@@ -99,17 +122,9 @@ pub struct MemoryDevice {
     reminder: Reminder,
     /// When to read again while the mouse doesn't answer.
     retry: WakeRetry,
-    /// Mouse Dock Pro only: the relayed charging flag lies (it read false
-    /// while the mouse physically charged through the pogo pins), so
-    /// charging is also inferred from the level climbing between reads.
-    inferred_charging: bool,
-    /// When the level last rose while docked — the inferred latch expires
-    /// this long after (a real plateau on a charging mouse re-latches on
-    /// the next climb).
-    last_rise: Option<Instant>,
-    /// The charging flag exactly as the last read reported it, before the
-    /// inference is OR-ed in — latch expiry must never undo a reported
-    /// charge.
+    /// The charging flag exactly as the last read reported it. On the Mouse
+    /// Dock Pro this is the relayed flag from the paired mouse, which is
+    /// reliable: it reads 1 on the dock and 0 the moment the mouse is lifted.
     reported_charging: bool,
     /// Recent (time, level) samples while charging, for the time-to-full
     /// estimate.
@@ -129,8 +144,6 @@ impl MemoryDevice {
             full_notified: false,
             reminder: Reminder::default(),
             retry: WakeRetry::default(),
-            inferred_charging: false,
-            last_rise: None,
             reported_charging: false,
             charge_history: Vec::new(),
             eta_full_min: None,
@@ -280,7 +293,22 @@ impl TrayApp {
             let mut force_refresh = false;
             let mut last_light_theme = system::taskbar_is_light();
             let mut system_was_idle = false;
+            // The dock re-asserts its charging LED state whenever the mouse is
+            // docked or starts/stops charging, which shows up as the LED
+            // snapping back to the colour it had while charging. Remember each
+            // device's last charging state so those transitions can put the
+            // saved static colours back (see the led module).
+            let mut last_charging: HashMap<u32, bool> = HashMap::new();
+            // Separate from last_charging: the LED resync below keeps its own
+            // view so it still fires when the widget refresh consumes the
+            // transition first.
+            let mut led_last_charging: HashMap<u32, bool> = HashMap::new();
+            // Colours re-applied at least once this run. Without this the
+            // first reading of every device would re-apply on each start.
+            let mut led_synced = false;
             let mut activity = Activity::default();
+            // Disk hygiene runs on a slow timer rather than every tick.
+            let mut next_maintenance = Instant::now() + Duration::from_secs(60);
             let mut feed = Feed::new();
             let reminder_unit = if options.fast_reminders {
                 Duration::from_secs(1)
@@ -291,6 +319,13 @@ impl TrayApp {
             loop {
                 let (removed_devices, connected_devices) = manager.fetch_devices();
                 let now = Instant::now();
+
+                if now >= next_maintenance {
+                    if let Some(dir) = system::data_dir() {
+                        crate::maintenance::run_once(&dir);
+                    }
+                    next_maintenance = now + Duration::from_secs(60 * 60);
+                }
                 let mut ui_changed = false;
 
                 let mut guard = devices.lock();
@@ -348,6 +383,7 @@ impl TrayApp {
                 system_was_idle = idle_now;
 
                 let poll_due = force_refresh || now >= next_battery_poll;
+                let mut read_this_round = false;
                 for (&id, device) in guard.iter_mut() {
                     let needs_first_read = device.battery_level.is_none() && !device.stale;
                     let wake_retry = device.stale && device.retry.due(now, input.last_input);
@@ -357,6 +393,7 @@ impl TrayApp {
                         device.retry.record(now, !device.stale);
                         check_full(device, &notify, &notifications_enabled);
                         ui_changed = true;
+                        read_this_round = true;
                     }
                 }
 
@@ -415,25 +452,115 @@ impl TrayApp {
                     trace!("Fullscreen app running, holding reminders");
                 }
 
-                // Time-based expiry of the inferred charging latch: evaluated
-                // every tick so a mouse taken off the dock flips to "not
-                // charging" within the window even when the next scheduled
-                // poll is far away. A mouse that stopped answering keeps its
-                // last known state until it responds again.
-                for device in guard.values_mut() {
-                    if device.stale || !device.inferred_charging || device.reported_charging {
+                // Charging changes are the interesting ones for the widget: the
+                // user docking or lifting the mouse should show up immediately,
+                // not whenever the adaptive interval next allows (up to 4 hours
+                // on a full battery). Remember what each device reported last
+                // tick and short-circuit the wait when it flips.
+                //
+                // The dock's LED effect is read on this fast loop (every few
+                // seconds) so a dock or undock is caught within one tick
+                // rather than on the next battery poll. The effect id is the
+                // ground truth for the charging cycle, so this also settles
+                // the charging flag without waiting for a battery read.
+                // Dock/undock must be noticed immediately, not on the
+                // adaptive battery interval (which stretches to hours on a
+                // healthy battery). The relayed charging flag is the reliable
+                // signal; this block just shortens the wait when it flips.
+                let mut charging_changed = false;
+                for (&id, device) in guard.iter() {
+                    if device.stale {
                         continue;
                     }
-                    let expired = device
-                        .last_rise
-                        .map_or(false, |t| now.duration_since(t) > CHARGE_LATCH_WINDOW);
-                    if expired {
-                        device.inferred_charging = false;
-                        device.last_rise = None;
-                        device.is_charging = false;
-                        ui_changed = true;
-                        info!("{}: no level rise, no longer charging", device.name);
+                    match last_charging.get(&id) {
+                        Some(previous) if *previous == device.is_charging => {}
+                        _ => {
+                            last_charging.insert(id, device.is_charging);
+                            charging_changed = true;
+                        }
                     }
+                }
+                if charging_changed {
+                    info!("charging state changed, refreshing the widget now");
+                    force_refresh = true;
+                    next_battery_poll = now;
+                }
+
+                // Put the saved static colours back after a charging
+                // transition, which is when the dock re-asserts its own LED
+                // state. Checked per device so a transition on one is not
+                // masked by another.
+                let mut led_resync = false;
+                for (&id, device) in guard.iter() {
+                    if device.stale {
+                        continue;
+                    }
+                    // A first reading after a reconnect is as good a moment to
+                    // re-apply as a charging flip: the dock re-asserts its LED
+                    // state when the RF link comes back too.
+                    match led_last_charging.get(&id) {
+                        Some(previous) if *previous == device.is_charging => {}
+                        // Previous state was charging and now it is not: the
+                        // mouse was lifted off the dock, so any colour the
+                        // dock left behind should be replaced with ours.
+                        Some(true) => led_resync = true,
+                        // Previous state was not charging and now it is: the
+                        // dock is starting its own breathing effect. Leave it
+                        // alone -- re-applying here is what made the dock
+                        // snap back to purple instead of breathing.
+                        Some(false) => {}
+                        // First reading after startup: the dock may have left
+                        // a stale colour, so put ours back.
+                        None => led_resync = true,
+                    }
+                }
+                // Once every live device has answered, put the saved colours
+                // down once so a tray restart cannot leave the LEDs on
+                // whatever the dock was last showing.
+                let all_have_readings = !guard.is_empty()
+                    && guard
+                        .values()
+                        .all(|d| !d.stale && d.battery_level.is_some());
+                if read_this_round && !led_synced && all_have_readings {
+                    led_synced = true;
+                    led_resync = true;
+                }
+
+                if led_resync {
+                    // Re-apply through the controllers the tray already holds:
+                    // a fresh handle opened beside them does not reach the
+                    // dock's LED pipeline.
+                    let pending: Vec<(led::Target, led::Rgb)> =
+                        [led::Target::Mouse, led::Target::Dock]
+                            .into_iter()
+                            .filter_map(|target| led::saved_color(target).map(|rgb| (target, rgb)))
+                            .collect();
+                    if !pending.is_empty() {
+                        drop(guard);
+                        for (target, rgb) in pending {
+                            let Some(controller) = manager.led_controller(target) else {
+                                warn!("led: no open controller for {}", target.key());
+                                continue;
+                            };
+                            let color = led::reapply(controller, target, rgb);
+                            info!(
+                                "led: re-applied {} #{:02X}{:02X}{:02X}; read back {}",
+                                target.key(),
+                                rgb.0,
+                                rgb.1,
+                                rgb.2,
+                                color
+                                    .map(|c| format!("#{:02X}{:02X}{:02X}", c.0, c.1, c.2))
+                                    .unwrap_or_else(|| "no colour".to_string())
+                            );
+                        }
+                        guard = devices.lock();
+                    }
+                    led_last_charging = guard
+                        .iter()
+                        .filter(|(_, d)| !d.stale)
+                        .map(|(&id, d)| (id, d.is_charging))
+                        .collect();
                 }
 
                 for (kind, name) in debouncer.drain_due(now) {
@@ -456,7 +583,23 @@ impl TrayApp {
                         level: d.battery_level,
                         charging: d.is_charging,
                         eta_full_min: d.eta_full_min,
-                        source: feed::source_of(&d.name),
+                        // "dock" means the mouse is on the dock and
+                        // charging; off the dock it is just wireless, even
+                        // though the dock still relays the battery reading.
+                        source: feed::source_of(&d.name, d.is_charging),
+                        // How soon this device will next be read. The skin
+                        // uses it to decide its own read cadence.
+                        // Event-driven hint for the skin. A fresh reading
+                        // means either the level moved or the charge state
+                        // flipped -- both already forced a re-poll -- so tell
+                        // the skin to look right now instead of waiting out
+                        // the adaptive interval.
+                        poll_seconds: poll_hint(
+                            d.battery_level,
+                            d.is_charging,
+                            idle_now,
+                            read_this_round,
+                        ),
                     });
                 feed.write_status(primary.as_ref(), now);
                 feed.append_history(primary.as_ref(), now);
@@ -653,16 +796,17 @@ fn read_battery(
     now: Instant,
 ) {
     let simulated = options.simulate_battery;
-    let level = simulated.or_else(|| manager.get_device_battery_level(id));
+
+    // Charging is read first, while the dock's RF relay is idle. Reading the
+    // battery first leaves the link busy and the charging read then fails with
+    // status 0x05, which used to freeze the previous charging state.
     let charging = if simulated.is_some() {
         Some(false)
-    } else if level.is_some() {
-        manager.is_device_charging(id)
     } else {
-        None
+        manager.is_device_charging(id)
     };
+    let level = simulated.or_else(|| manager.get_device_battery_level(id));
     let mut trusted_charging = charging;
-    let prev_level = device.battery_level;
 
     match level {
         Some(0) => {
@@ -696,53 +840,44 @@ fn read_battery(
         }
     }
 
-    if let Some(reported) = trusted_charging {
-        // The dock's relayed charging flag lies (it read false while the
-        // mouse physically charged through the pogo pins), so for the dock
-        // the flag is OR-ed with level-slope inference. The latch is
-        // anchored to the last level rise and expires a few minutes later:
-        // a mouse that isn't charging can't keep gaining percent.
-        if id == devices::RAZER_MOUSE_DOCK_PRO.pid as u32 {
+    // The dock relays the mouse's real charging flag on transaction 0x1F.
+    // Measured on this hardware it is reliable and flips promptly:
+    //   1 while the mouse is on the dock, 0 as soon as it is lifted.
+    //
+    // The old code OR-ed this with a level-slope inference whose latch, once
+    // set, was never cleared -- that is what made the tray and widget keep
+    // showing "charging" long after the mouse was off. A failed read must not
+    // freeze the old value either, so it clears the state instead.
+    match trusted_charging {
+        Some(reported) => {
+            if device.reported_charging != reported || device.is_charging != reported {
+                info!(
+                    "{}: charging={} (flag changed)",
+                    device.name, reported
+                );
+            }
             device.reported_charging = reported;
-            let cur = device.battery_level;
-            let rose = matches!((prev_level, cur), (Some(p), Some(n)) if n > p);
-            let fell = matches!((prev_level, cur), (Some(p), Some(n)) if n < p);
-            if rose {
-                device.inferred_charging = true;
-                device.last_rise = Some(now);
-            }
-            if reported {
-                device.inferred_charging = true;
-                if device.last_rise.is_none() {
-                    device.last_rise = Some(now);
-                }
-            }
-            if fell {
-                // A falling battery is definitive proof of discharge.
-                device.inferred_charging = false;
-                device.last_rise = None;
-            }
-            let latch_expired = device
-                .last_rise
-                .map_or(false, |t| now.duration_since(t) > CHARGE_LATCH_WINDOW);
-            if latch_expired && !reported && !rose {
-                device.inferred_charging = false;
-                device.last_rise = None;
-            }
-            let effective = reported || device.inferred_charging;
-            info!(
-                "{}  charging status: {} (reported {}, inferred {})",
-                device.name, effective, reported, device.inferred_charging
-            );
-            device.is_charging = effective;
-        } else {
-            device.reported_charging = reported;
-            info!("{}  charging status: {}", device.name, reported);
             device.is_charging = reported;
+        }
+        None => {
+            // No answer this round (mouse asleep, RF busy). Do not invent a
+            // state: drop to not-charging rather than showing a stale "1".
+            if device.is_charging {
+                info!("{}: charging flag unavailable, clearing charging state", device.name);
+                device.is_charging = false;
+                device.reported_charging = false;
+            }
         }
     }
 
     // Time-to-full estimate from the recent level slope while charging.
+    // Time-to-full estimate.
+    //
+    // Samples are the battery level in percent. Charging this mouse moves
+    // roughly a percent every few minutes, so the slope needs a few samples
+    // before it means anything -- but requiring a long window made the ETA
+    // blank in practice, since a dock charge is often interrupted. Use the
+    // oldest and newest sample within the window and accept a shorter span.
     if device.is_charging {
         if let Some(l) = level.filter(|l| *l > 0) {
             device.charge_history.push((now, l));
@@ -753,16 +888,22 @@ fn read_battery(
     device
         .charge_history
         .retain(|(t, _)| now.duration_since(*t) <= CHARGE_HISTORY_WINDOW);
+
     device.eta_full_min = None;
-    if device.is_charging {
-        if let (Some((t0, l0)), Some((_, l1))) =
-            (device.charge_history.first(), device.charge_history.last())
-        {
-            let span_min = now.duration_since(*t0).as_secs_f64() / 60.0;
-            let rate = (*l1 - *l0) as f64 / span_min; // % per minute
-            let remaining = (100 - *l1) as f64;
-            if span_min >= 5.0 && rate > 0.02 && remaining > 0.5 {
+    if device.is_charging && device.charge_history.len() >= 2 {
+        let (t0, l0) = device.charge_history[0];
+        let (t1, l1) = *device.charge_history.last().unwrap();
+        let span_min = (t1 - t0).as_secs_f64() / 60.0;
+        let gained = l1 - l0;
+        // Any upward movement at all gives a usable rate; a minute of span is
+        // enough to divide by without amplifying noise.
+        if span_min >= 1.0 && gained > 0 {
+            let rate = gained as f64 / span_min; // % per minute
+            let remaining = (100 - l1) as f64;
+            if remaining > 0.0 {
                 let eta = (remaining / rate).round() as i32;
+                // Below a minute, say 1; cap at ten hours so a nearly-flat
+                // slope cannot report something absurd.
                 device.eta_full_min = Some(eta.clamp(1, 600));
             }
         }

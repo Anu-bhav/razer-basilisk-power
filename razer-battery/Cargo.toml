@@ -1,0 +1,22 @@
+[package]
+name = "razer_battery"
+version = "0.2.0"
+edition = "2024"
+authors = ["Andzej Zuralovic <andzej.zuralovic@example.com>"]
+description = "Cross-platform library for reading battery level from wireless Razer devices via HID"
+license = "MIT"
+repository = "https://github.com/andrzej-zuralovic/razer_battery"
+keywords = ["razer", "battery", "hid", "mouse", "openrazer"]
+categories = ["hardware-support"]
+
+[dependencies]
+hidapi = { version = "2.6", features = ["macos-shared-device"] }
+thiserror = "2"
+log = "0.4"
+
+[dev-dependencies]
+env_logger = "0.11"
+
+[[example]]
+name = "check_battery"
+path = "src/examples/check_battery.rs"

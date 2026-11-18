@@ -5,6 +5,8 @@ mod controller;
 mod debounce;
 mod devices;
 mod feed;
+mod led;
+mod maintenance;
 mod manager;
 mod notify;
 mod options;
@@ -34,6 +36,10 @@ fn main() {
     if options != Options::default() {
         log::info!("Options: {options:?}");
     }
+
+    // Keep the data folder from growing without bound: trim the log and the
+    // history CSV, and drop stale one-off files.
+    maintenance::run_once(&system::data_dir().unwrap_or_default());
 
     // A second instance would draw a second tray icon; block it. Simulated
     // runs (testing flags) are allowed alongside the real app.

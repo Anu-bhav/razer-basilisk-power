@@ -22,6 +22,31 @@ impl DeviceManager {
         }
     }
 
+    /// The open controller for a PID, if the device is present.
+    ///
+    /// The tray already holds a handle per device for battery polling. LED
+    /// writes must reuse it: opening a second handle to the same HID device
+    /// while the tray is running makes the writes land on a handle the dock
+    /// does not act on.
+    pub fn controller(&self, pid: u16) -> Option<&DeviceController> {
+        self.device_controllers
+            .iter()
+            .find(|controller| controller.pid == pid)
+    }
+
+    /// The controller to talk to for an LED target: the mouse's own PID when
+    /// it is plugged in, otherwise the dock that relays to it.
+    pub fn led_controller(&self, target: crate::led::Target) -> Option<&DeviceController> {
+        use crate::led::Target;
+        match target {
+            Target::Dock => self.controller(crate::devices::RAZER_MOUSE_DOCK_PRO.pid),
+            Target::Mouse => [0x00AAu16, 0x00AB]
+                .into_iter()
+                .find_map(|pid| self.controller(pid))
+                .or_else(|| self.controller(crate::devices::RAZER_MOUSE_DOCK_PRO.pid)),
+        }
+    }
+
     pub fn fetch_devices(&mut self) -> (Vec<u32>, Vec<u32>) {
         if self.api.is_none() {
             self.api = HidApi::new()

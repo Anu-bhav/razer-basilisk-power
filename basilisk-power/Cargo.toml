@@ -1,0 +1,17 @@
+[package]
+name = "basilisk-power"
+version = "0.1.0"
+edition = "2024"
+description = "Battery + LED control CLI for the Razer Basilisk V3 Pro (Mouse Dock Pro aware)"
+autobins = false
+
+[dependencies]
+razer_battery = { path = "../razer-battery" }
+hidapi = "2.6"
+env_logger = "0.11"
+log = "0.4"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
+[[bin]]
+name = "basilisk-power-cli"
+path = "src/main.rs"
