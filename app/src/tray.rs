@@ -890,7 +890,18 @@ fn read_battery(
         .retain(|(t, _)| now.duration_since(*t) <= CHARGE_HISTORY_WINDOW);
 
     device.eta_full_min = None;
-    if device.is_charging && device.charge_history.len() >= 2 {
+    if device.is_charging {
+        // At 100% there is nothing left to wait for, and the skin hides the
+        // line entirely. At 99% the last percent can take far longer than the
+        // slope suggests, so say one minute rather than extrapolating.
+        if level == Some(99) {
+            device.eta_full_min = Some(1);
+        }
+    }
+    if device.eta_full_min.is_none()
+        && device.is_charging
+        && device.charge_history.len() >= 2
+    {
         let (t0, l0) = device.charge_history[0];
         let (t1, l1) = *device.charge_history.last().unwrap();
         let span_min = (t1 - t0).as_secs_f64() / 60.0;
