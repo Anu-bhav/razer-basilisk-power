@@ -37,16 +37,23 @@ const CONNECTION_DEBOUNCE: Duration = Duration::from_secs(10);
 /// Minimum gap between hover-triggered refreshes, so keeping the cursor on
 /// the icon doesn't hammer the dock's RF relay.
 const HOVER_REFRESH_INTERVAL: Duration = Duration::from_secs(10);
-/// Reads closer together than this don't count as evidence for/against
-/// inferred dock charging (manual refreshes during a rounding plateau).
-const SPACED_READ_GAP: Duration = Duration::from_secs(60);
+/// A charging state inferred from the level climbing expires this long
+/// after the last rise — by then the mouse must be off the dock, since
+/// real charging adds roughly a percent every few minutes.
+const CHARGE_LATCH_WINDOW: Duration = Duration::from_secs(6 * 60);
+/// Input idle at which the mouse was likely just docked (or parked):
+/// probe immediately instead of waiting for the next scheduled poll.
+const DOCK_DETECT_IDLE: Duration = Duration::from_secs(8);
 /// Window of level samples used for the time-to-full estimate.
 const CHARGE_HISTORY_WINDOW: Duration = Duration::from_secs(45 * 60);
 
 /// Adaptive battery poll interval: check often when the battery is low or
 /// charging, rarely when it is healthy — a full battery doesn't need
-/// watching every 5 minutes.
-fn adaptive_wait(level: Option<i32>, charging: bool) -> Duration {
+/// watching every 5 minutes. While the user is idle the mouse is likely
+/// sitting on the dock, so poll every minute: that is how fast a dock drop
+/// has to be noticed for the tray and the widget to feel instant.
+fn adaptive_wait(level: Option<i32>, charging: bool, system_idle: bool) -> Duration {
+    const MIN_1: Duration = Duration::from_secs(60);
     const MIN_2: Duration = Duration::from_secs(2 * 60);
     const MIN_5: Duration = Duration::from_secs(5 * 60);
     const MIN_10: Duration = Duration::from_secs(10 * 60);
@@ -57,8 +64,13 @@ fn adaptive_wait(level: Option<i32>, charging: bool) -> Duration {
     match level {
         // Nothing fresh yet (first read pending): don't wait long.
         None => MIN_5,
+        // Full: nothing to watch for until it drains again.
+        Some(l) if l >= 100 => H_4,
         // While charging the level climbs — keep an eye on it.
-        Some(_) if charging => MIN_5,
+        Some(_) if charging && system_idle => MIN_1,
+        Some(_) if charging => MIN_2,
+        // Resting (mouse parked, user away): watch for the dock drop.
+        Some(_) if system_idle => MIN_1,
         Some(l) if l <= 2 => MIN_2,
         Some(l) if l <= 6 => MIN_5,
         Some(l) if l <= 14 => MIN_10,
@@ -91,12 +103,14 @@ pub struct MemoryDevice {
     /// while the mouse physically charged through the pogo pins), so
     /// charging is also inferred from the level climbing between reads.
     inferred_charging: bool,
-    /// Consecutive same-level reads while charging is neither reported nor
-    /// inferred — three in a row unlatch the inference.
-    flat_reads: u8,
-    /// Instant of the last read (successful or not); spaced reads only
-    /// count as evidence for the charging inference.
-    last_read: Option<Instant>,
+    /// When the level last rose while docked — the inferred latch expires
+    /// this long after (a real plateau on a charging mouse re-latches on
+    /// the next climb).
+    last_rise: Option<Instant>,
+    /// The charging flag exactly as the last read reported it, before the
+    /// inference is OR-ed in — latch expiry must never undo a reported
+    /// charge.
+    reported_charging: bool,
     /// Recent (time, level) samples while charging, for the time-to-full
     /// estimate.
     charge_history: Vec<(Instant, i32)>,
@@ -116,8 +130,8 @@ impl MemoryDevice {
             reminder: Reminder::default(),
             retry: WakeRetry::default(),
             inferred_charging: false,
-            flat_reads: 0,
-            last_read: None,
+            last_rise: None,
+            reported_charging: false,
             charge_history: Vec::new(),
             eta_full_min: None,
         }
@@ -265,6 +279,7 @@ impl TrayApp {
             let mut next_battery_poll = Instant::now();
             let mut force_refresh = false;
             let mut last_light_theme = system::taskbar_is_light();
+            let mut system_was_idle = false;
             let mut activity = Activity::default();
             let mut feed = Feed::new();
             let reminder_unit = if options.fast_reminders {
@@ -314,11 +329,23 @@ impl TrayApp {
 
                 // A mouse that stopped answering is retried as soon as the user
                 // touches the PC again (moving the mouse wakes it), with backoff.
-                let input = activity.sample(now, system::idle_time());
+                let idle_time = system::idle_time();
+                let input = activity.sample(now, idle_time);
+                let idle_now = idle_time.is_some_and(|t| t >= DOCK_DETECT_IDLE);
                 if input.returned {
                     trace!("User input after idle, retrying sleeping devices");
                     guard.values_mut().for_each(|d| d.retry.reset_backoff());
+                    // Picking the mouse up (or plugging the cable) must show
+                    // in the tray and the widget right away.
+                    force_refresh = true;
                 }
+                // The moment input stops, the mouse was likely just docked —
+                // probe now instead of waiting out the next scheduled poll.
+                if idle_now && !system_was_idle {
+                    info!("Input idle, probing for dock drop");
+                    force_refresh = true;
+                }
+                system_was_idle = idle_now;
 
                 let poll_due = force_refresh || now >= next_battery_poll;
                 for (&id, device) in guard.iter_mut() {
@@ -343,7 +370,7 @@ impl TrayApp {
                     let min_wait = guard
                         .values()
                         .filter(|d| !d.stale)
-                        .map(|d| adaptive_wait(d.battery_level, d.is_charging))
+                        .map(|d| adaptive_wait(d.battery_level, d.is_charging, idle_now))
                         .min()
                         .unwrap_or(BATTERY_UPDATE_INTERVAL);
                     next_battery_poll = now + min_wait;
@@ -386,6 +413,27 @@ impl TrayApp {
                 }
                 if game_running {
                     trace!("Fullscreen app running, holding reminders");
+                }
+
+                // Time-based expiry of the inferred charging latch: evaluated
+                // every tick so a mouse taken off the dock flips to "not
+                // charging" within the window even when the next scheduled
+                // poll is far away. A mouse that stopped answering keeps its
+                // last known state until it responds again.
+                for device in guard.values_mut() {
+                    if device.stale || !device.inferred_charging || device.reported_charging {
+                        continue;
+                    }
+                    let expired = device
+                        .last_rise
+                        .map_or(false, |t| now.duration_since(t) > CHARGE_LATCH_WINDOW);
+                    if expired {
+                        device.inferred_charging = false;
+                        device.last_rise = None;
+                        device.is_charging = false;
+                        ui_changed = true;
+                        info!("{}: no level rise, no longer charging", device.name);
+                    }
                 }
 
                 for (kind, name) in debouncer.drain_due(now) {
@@ -649,30 +697,37 @@ fn read_battery(
     }
 
     if let Some(reported) = trusted_charging {
-        // The dock's relayed charging flag lies (false while physically
-        // charging through the pogo pins), so for the dock the flag is
-        // OR-ed with level-slope inference.
+        // The dock's relayed charging flag lies (it read false while the
+        // mouse physically charged through the pogo pins), so for the dock
+        // the flag is OR-ed with level-slope inference. The latch is
+        // anchored to the last level rise and expires a few minutes later:
+        // a mouse that isn't charging can't keep gaining percent.
         if id == devices::RAZER_MOUSE_DOCK_PRO.pid as u32 {
+            device.reported_charging = reported;
             let cur = device.battery_level;
             let rose = matches!((prev_level, cur), (Some(p), Some(n)) if n > p);
             let fell = matches!((prev_level, cur), (Some(p), Some(n)) if n < p);
-            if rose || reported {
+            if rose {
                 device.inferred_charging = true;
-                device.flat_reads = 0;
-            } else {
-                // Same-level reads only count as evidence when spaced apart:
-                // hover/manual refreshes seconds apart must not erode the
-                // latch during a rounding plateau.
-                let spaced = device
-                    .last_read
-                    .map_or(true, |t| now.duration_since(t) >= SPACED_READ_GAP);
-                if spaced {
-                    device.flat_reads = device.flat_reads.saturating_add(1);
+                device.last_rise = Some(now);
+            }
+            if reported {
+                device.inferred_charging = true;
+                if device.last_rise.is_none() {
+                    device.last_rise = Some(now);
                 }
-                if fell || device.flat_reads >= 3 {
-                    device.inferred_charging = false;
-                    device.flat_reads = 0;
-                }
+            }
+            if fell {
+                // A falling battery is definitive proof of discharge.
+                device.inferred_charging = false;
+                device.last_rise = None;
+            }
+            let latch_expired = device
+                .last_rise
+                .map_or(false, |t| now.duration_since(t) > CHARGE_LATCH_WINDOW);
+            if latch_expired && !reported && !rose {
+                device.inferred_charging = false;
+                device.last_rise = None;
             }
             let effective = reported || device.inferred_charging;
             info!(
@@ -681,6 +736,7 @@ fn read_battery(
             );
             device.is_charging = effective;
         } else {
+            device.reported_charging = reported;
             info!("{}  charging status: {}", device.name, reported);
             device.is_charging = reported;
         }
@@ -711,7 +767,6 @@ fn read_battery(
             }
         }
     }
-    device.last_read = Some(now);
 }
 
 fn check_full(device: &mut MemoryDevice, notify: &Notify, enabled: &AtomicBool) {

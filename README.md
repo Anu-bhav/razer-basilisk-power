@@ -31,8 +31,10 @@ with Mouse Dock Pro support and several new features. MIT licensed.
   before the mouse's response arrives; reads are retried (like the OpenRazer
   kernel driver) instead of failing.
 - **Adaptive polling.** 2 min ≤ 2%, 5 min ≤ 6%, 10 min ≤ 14%, 30 min ≤ 29%,
-  1 h ≤ 49%, 2 h ≤ 79%, 4 h when full, 5 min while charging. A full battery
-  isn't checked every five minutes.
+  1 h ≤ 49%, 2 h ≤ 79%, 4 h when full, 1-2 min while charging. While the user
+  is idle the mouse is polled every minute so a dock drop is noticed fast;
+  input going idle (docking the mouse) or returning (picking it up) triggers
+  an immediate read.
 - **Hover to refresh.** Hovering the tray icon requests a fresh read
   (throttled to one per 10 s) so the tooltip shows the latest charging data.
 - **Time-to-full estimate.** While charging, the tooltip shows
