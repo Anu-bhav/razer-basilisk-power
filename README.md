@@ -157,6 +157,34 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\opencode\deploy.ps1" -S
 `-Start` launches the tray afterwards; `-SkipBuild` copies the existing build
 output; `-SkipSkin` leaves Rainmeter alone.
 
+With `-Start`, the script also performs a **health check**: it waits up to 20 s
+for a fresh `status.json` naming a real device. If no valid feed appears, it
+kills the new tray, restores the previous binaries from `*.backup`, restarts
+them, and exits 1. A bad build therefore costs seconds, not a dead tray.
+
+## Verifying a change
+
+[`verify.ps1`](verify.ps1) is the regression gate. It builds both workspaces,
+runs all 24 tests (the tray's tests are cross-compiled and executed natively on
+Windows), deploys, then checks:
+
+| Check | What it proves |
+| --- | --- |
+| feed schema/ranges/freshness | tray is alive and writing a valid document |
+| widget idle | neon-blue fill, no ETA row, no magenta |
+| widget charging (fake feed) | magenta fill, ETA row/text, visible fill pulse |
+| tray recovery | real feed returns after the fake-feed tests |
+| LED read-back | both devices still answer with the saved colours |
+
+```powershell
+Copy-Item <repo>\deploy.ps1,<repo>\verify.ps1 "$env:TEMP\opencode\" -Force
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\opencode\verify.ps1"
+```
+
+`-SkipWidget`, `-SkipLed`, `-SkipDeploy` shorten the loop while iterating. The
+invariants behind these checks are written down in
+[`REGRESSIONS.md`](REGRESSIONS.md).
+
 Then either add a `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` value
 pointing at `basilisk-power.exe`, or drop a shortcut in `shell:startup`.
 
@@ -227,7 +255,8 @@ line graph uses, so the two widgets read as one set.
 
 Copy `skin/` into `%USERPROFILE%\Documents\Rainmeter\Skins\BasiliskPower\`,
 then refresh Rainmeter. `deploy.ps1` does this for you (see
-[Deploying](#deploying)).
+[Deploying](#deploying)), and `verify.ps1` checks the whole chain (see
+[Verifying a change](#verifying-a-change)).
 
 ### Data schema
 
@@ -244,7 +273,8 @@ then refresh Rainmeter. `deploy.ps1` does this for you (see
 | `source` | `dock` (charging) \| `wireless` \| `wired` \| `none` |
 | `eta_full_min` | Minutes to full while charging, `-1` when unknown |
 | `name` | Device name |
-| `updated` | Local `HH:MM` of the write, used to spot a dead feed |
+| `updated` | Local `HH:MM` of the write |
+| `updated_unix` | Unix epoch of the write, for exact freshness checks |
 | `poll` | Seconds until the tray next writes |
 
 `battery-history.csv` appends a row per reading (`date,time,level,charging,source`),
@@ -281,6 +311,9 @@ These cost real debugging time; they are documented in the skin comments too.
 - The WebParser regex must not use the `(?U)` flag or `\d+` captures a single
   digit.
 - A dynamic `!SetOption` on `UpdateDivider` after load is ignored.
+- A `status.json` that is replaced while Rainmeter reads it can parse as a
+  truncated document. The tray writes `status.json.tmp` and renames it into
+  place, so readers only ever see a complete file.
 - **Rainmeter does not reload a skin when its `.ini` is replaced from outside
   the app.** The old layout keeps running until Rainmeter restarts, which
   makes a correct change look broken. `deploy.ps1` restarts it for this

@@ -66,11 +66,15 @@ impl Feed {
     pub fn write_status(&mut self, device: Option<&DeviceSnapshot>, _now: Instant) {
         let Some(dir) = &self.dir else { return };
         let updated = system::local_time_parts().0;
+        let updated_unix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
         let json = match device {
             Some(d) => format!(
                 concat!(
                     r#"{{"level":{},"charging":{},"source":"{}","#,
-                    r#""eta_full_min":{},"name":"{}","updated":"{}","poll":{}}}"#
+                    r#""eta_full_min":{},"name":"{}","updated":"{}","updated_unix":{},"poll":{}}}"#
                 ),
                 d.level.unwrap_or(-1),
                 if d.charging { 1 } else { 0 },
@@ -78,11 +82,13 @@ impl Feed {
                 d.eta_full_min.unwrap_or(-1),
                 d.name,
                 updated,
+                updated_unix,
                 d.poll_seconds,
             ),
             None => format!(
-                r#"{{"level":-1,"charging":0,"source":"none","eta_full_min":-1,"name":"","updated":"{}","poll":{}}}"#,
+                r#"{{"level":-1,"charging":0,"source":"none","eta_full_min":-1,"name":"","updated":"{}","updated_unix":{},"poll":{}}}"#,
                 updated,
+                updated_unix,
                 IDLE_POLL_SECONDS,
             ),
         };
@@ -97,8 +103,13 @@ impl Feed {
         if unchanged && exists {
             return;
         }
-        if std::fs::write(&path, json.as_bytes()).is_ok() {
+        let tmp = dir.join("status.json.tmp");
+        let write = std::fs::write(&tmp, json.as_bytes())
+            .and_then(|_| std::fs::rename(&tmp, &path));
+        if write.is_ok() {
             self.last_status = Some(json);
+        } else {
+            let _ = std::fs::remove_file(&tmp);
         }
     }
 

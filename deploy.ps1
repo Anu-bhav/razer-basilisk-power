@@ -91,6 +91,12 @@ foreach ($b in $builds) {
         continue
     }
 
+    # Keep one generation of the previous binary. If the new tray cannot
+    # produce a valid feed, rollback is a copy away instead of a rebuild.
+    if (Test-Path $dst) {
+        Copy-Item -LiteralPath $dst -Destination "$dst.backup" -Force
+    }
+
     $srcHash = Get-Hash $src
     try {
         Copy-Item -LiteralPath $src -Destination $dst -Force
@@ -170,9 +176,80 @@ if ($failed) {
     exit 1
 }
 
+$feedPath = Join-Path $Dest "status.json"
+
+function Test-FeedHealth([string]$Path) {
+    if (-not (Test-Path $Path)) { return $false }
+    try {
+        $j = Get-Content $Path -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+    } catch {
+        return $false
+    }
+    if ($null -eq $j.level -or $null -eq $j.charging -or
+        $null -eq $j.source -or $null -eq $j.poll) { return $false }
+    if ([int]$j.level -lt -1 -or [int]$j.level -gt 100) { return $false }
+    if (@(0, 1) -notcontains [int]$j.charging) { return $false }
+    if ($j.source -notin @('dock', 'wireless', 'wired', 'none', 'unknown')) { return $false }
+    if ([int]$j.poll -lt 1) { return $false }
+    if ($null -ne $j.updated_unix -and [int64]$j.updated_unix -gt 0) {
+        $age = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - [int64]$j.updated_unix
+        if ($age -gt 60 -or $age -lt -60) { return $false }
+    }
+    return $true
+}
+
+function Restore-Backups {
+    $restored = $false
+    foreach ($b in $builds) {
+        $dst = Join-Path $Dest $b.Name
+        if (Test-Path "$dst.backup") {
+            Copy-Item -LiteralPath "$dst.backup" -Destination $dst -Force
+            $restored = $true
+        }
+    }
+    return $restored
+}
+
 if ($Start) {
     Write-Host "`nStarting tray..." -ForegroundColor Cyan
     Start-Process (Join-Path $Dest "basilisk-power.exe")
+
+    Write-Host "Waiting for a healthy status.json..." -ForegroundColor Cyan
+    $healthy = $false
+    $sawFeed = $false
+    for ($i = 0; $i -lt 20; $i++) {
+        Start-Sleep -Seconds 1
+        if (Test-FeedHealth $feedPath) {
+            $sawFeed = $true
+            $j = Get-Content $feedPath -Raw | ConvertFrom-Json
+            # Prefer a feed that actually names a device; the first write is
+            # often the legitimate "nothing answered yet" placeholder.
+            if ($j.source -and $j.source -ne 'none') { $healthy = $true; break }
+        }
+    }
+    if (-not $healthy -and $sawFeed) {
+        Write-Host "  note: feed is valid, but no device answered yet" -ForegroundColor Yellow
+        $healthy = $true
+    }
+
+    if (-not $healthy) {
+        Write-Host "HEALTH CHECK FAILED: no valid feed after 30 s." -ForegroundColor Red
+        Get-Process -Name basilisk-power -ErrorAction SilentlyContinue | ForEach-Object {
+            $_.Kill(); $_.WaitForExit(5000) | Out-Null
+        }
+        Start-Sleep -Milliseconds 700
+        if (Restore-Backups) {
+            Write-Host "Restored the previous executables; restarting them." -ForegroundColor Yellow
+            Start-Process (Join-Path $Dest "basilisk-power.exe")
+        } else {
+            Write-Host "No previous executables to restore." -ForegroundColor Red
+        }
+        exit 1
+    }
+
+    $j = Get-Content $feedPath -Raw | ConvertFrom-Json
+    Write-Host ("  OK   feed: {0}%, charging={1}, {2}, poll={3}s" -f `
+        $j.level, $j.charging, $j.source, $j.poll) -ForegroundColor Green
 }
 
 Write-Host "`nDeploy OK." -ForegroundColor Green
