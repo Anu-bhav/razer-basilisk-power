@@ -19,20 +19,34 @@ use log::LevelFilter;
 use options::Options;
 use tray::TrayApp;
 
+/// The version line shown by `--version` and the tray menu.
+pub fn version_line() -> String {
+    format!("{} ({})", env!("CARGO_PKG_VERSION"), env!("BASILISK_GIT_HASH"))
+}
+
 fn main() {
-    // GUI-subsystem exe: stderr goes nowhere, so log to a file we can read
-    // when something looks wrong in the tray.
-    init_file_logger();
     install_panic_hook();
-    log::info!("Basilisk Power starting");
 
     let options = match Options::parse(std::env::args().skip(1)) {
         Ok(options) => options,
         Err(e) => {
-            log::error!("{e}");
+            system::show_error(&e);
             std::process::exit(2);
         }
     };
+
+    // Handle --version before opening the log: a version query must never
+    // truncate the log of a tray that is already running.
+    if options.version {
+        system::show_version(&format!("basilisk-power {}", version_line()));
+        return;
+    }
+
+    // GUI-subsystem exe: stderr goes nowhere, so log to a file we can read
+    // when something looks wrong in the tray.
+    init_file_logger();
+    log::info!("Basilisk Power {} starting", version_line());
+
     if options != Options::default() {
         log::info!("Options: {options:?}");
     }

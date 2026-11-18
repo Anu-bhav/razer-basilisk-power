@@ -13,6 +13,8 @@ pub struct Options {
     /// `--digits`: draw the raw battery number in the tray instead of the
     /// battery glyph.
     pub digits: bool,
+    /// `--version`: print the version and exit without touching the log.
+    pub version: bool,
 }
 
 impl Options {
@@ -36,6 +38,7 @@ impl Options {
                 "--simulate-game" => opts.simulate_game = true,
                 "--fast-reminders" => opts.fast_reminders = true,
                 "--digits" => opts.digits = true,
+                "--version" | "-V" => opts.version = true,
                 other => return Err(format!("unknown argument: {other}")),
             }
         }
@@ -65,6 +68,13 @@ mod tests {
         assert!(opts.simulate_game);
         assert!(opts.fast_reminders);
         assert!(opts.digits);
+    }
+
+    #[test]
+    fn parses_version() {
+        assert!(parse(&["--version"]).unwrap().version);
+        assert!(parse(&["-V"]).unwrap().version);
+        assert!(!parse(&[]).unwrap().version);
     }
 
     #[test]

@@ -120,6 +120,128 @@ pub fn log_path() -> Option<std::path::PathBuf> {
 }
 
 /// Local wall-clock time as ("HH:MM", "HH:MM:SS", "YYYY-MM-DD").
+/// Print a one-line version answer for this GUI exe.
+///
+/// A Windows GUI-subsystem process has no console of its own and Rust's stdout
+/// may be unbound, so this writes to whatever standard-output handle was
+/// inherited (a pipe under PowerShell, a console after AttachConsole). If
+/// there is no usable handle -- launched from Explorer -- it shows a small
+/// message box instead of exiting silently.
+pub fn show_version(text: &str) {
+    #[cfg(windows)]
+    {
+        use std::ffi::c_void;
+
+        const STD_OUTPUT_HANDLE: u32 = 0xFFFF_FFF5;
+        const INVALID_HANDLE_VALUE: *mut c_void = -1isize as *mut c_void;
+        const MB_ICONINFORMATION: u32 = 0x40;
+
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn AttachConsole(process_id: u32) -> i32;
+            fn GetStdHandle(which: u32) -> *mut c_void;
+            fn WriteFile(
+                handle: *mut c_void,
+                buffer: *const u8,
+                bytes: u32,
+                written: *mut u32,
+                overlapped: *mut c_void,
+            ) -> i32;
+        }
+
+        #[link(name = "user32")]
+        extern "system" {
+            fn MessageBoxW(
+                hwnd: *mut c_void,
+                text: *const u16,
+                caption: *const u16,
+                utype: u32,
+            ) -> i32;
+        }
+
+        unsafe {
+            // ATTACH_PARENT_PROCESS; harmless when there is no parent console.
+            AttachConsole(u32::MAX);
+
+            let handle = GetStdHandle(STD_OUTPUT_HANDLE);
+            let mut line = String::from(text);
+            line.push_str("\r\n");
+            let mut written = 0u32;
+            let wrote = !handle.is_null()
+                && handle != INVALID_HANDLE_VALUE
+                && WriteFile(
+                    handle,
+                    line.as_ptr(),
+                    line.len() as u32,
+                    &mut written,
+                    std::ptr::null_mut(),
+                ) != 0
+                && written > 0;
+
+            if !wrote {
+                let wide = |s: &str| -> Vec<u16> {
+                    use std::os::windows::ffi::OsStrExt;
+                    std::ffi::OsStr::new(s)
+                        .encode_wide()
+                        .chain(std::iter::once(0))
+                        .collect()
+                };
+                let text: Vec<u16> = wide(text);
+                let caption: Vec<u16> = wide("Basilisk Power");
+                MessageBoxW(
+                    std::ptr::null_mut(),
+                    text.as_ptr(),
+                    caption.as_ptr(),
+                    MB_ICONINFORMATION,
+                );
+            }
+        }
+    }
+
+    #[cfg(not(windows))]
+    println!("{text}");
+}
+
+/// Report a startup error the same way: stderr when possible, otherwise a
+/// message box, so an invalid flag never exits silently.
+pub fn show_error(text: &str) {
+    #[cfg(windows)]
+    {
+        use std::ffi::c_void;
+
+        #[link(name = "user32")]
+        extern "system" {
+            fn MessageBoxW(
+                hwnd: *mut c_void,
+                text: *const u16,
+                caption: *const u16,
+                utype: u32,
+            ) -> i32;
+        }
+
+        let wide = |s: &str| -> Vec<u16> {
+            use std::os::windows::ffi::OsStrExt;
+            std::ffi::OsStr::new(s)
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect()
+        };
+        let text: Vec<u16> = wide(text);
+        let caption: Vec<u16> = wide("Basilisk Power");
+        unsafe {
+            MessageBoxW(
+                std::ptr::null_mut(),
+                text.as_ptr(),
+                caption.as_ptr(),
+                0x10, // MB_ICONERROR
+            );
+        }
+    }
+
+    #[cfg(not(windows))]
+    eprintln!("{text}");
+}
+
 pub fn local_time_parts() -> (String, String, String) {
     use winapi::um::minwinbase::SYSTEMTIME;
     use winapi::um::sysinfoapi::GetLocalTime;

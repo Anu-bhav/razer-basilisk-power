@@ -174,7 +174,17 @@ struct MenuItems {
     reconnect: MenuItem,
     open_log: MenuItem,
     notifications: CheckMenuItem,
+    version: MenuItem,
     quit: MenuItem,
+}
+
+/// Version label for the menu. Leaked once because the tray-icon API wants a
+/// `&'static str`, and this lives for the whole process anyway.
+fn version_text() -> &'static str {
+    Box::leak(
+        format!("v{} ({})", env!("CARGO_PKG_VERSION"), env!("BASILISK_GIT_HASH"))
+            .into_boxed_str(),
+    )
 }
 
 impl TrayInner {
@@ -192,6 +202,7 @@ impl TrayInner {
             reconnect: MenuItem::new("Reconnect devices", true, None),
             open_log: MenuItem::new("Open log", true, None),
             notifications: CheckMenuItem::new("Notifications", true, true, None),
+            version: MenuItem::new(version_text(), false, None),
             quit: MenuItem::new("Exit", true, None),
         };
 
@@ -203,6 +214,7 @@ impl TrayInner {
             &items.open_log,
             &items.notifications,
             &PredefinedMenuItem::separator(),
+            &items.version,
             &items.quit,
         ]) {
             warn!("Failed to append menu items: {}", e);

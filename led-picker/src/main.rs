@@ -34,7 +34,33 @@ const PANEL: egui::Color32 = egui::Color32::from_rgb(18, 19, 23);
 const DEFAULT_MOUSE: Rgb = (0x16, 0x00, 0x54);
 const DEFAULT_DOCK: Rgb = (0x16, 0x00, 0x54);
 
+/// Attach to the console that launched this GUI exe, if there is one, so
+/// `--version` is visible from cmd/PowerShell. No-op elsewhere.
+#[cfg(windows)]
+fn attach_parent_console() {
+    unsafe extern "system" {
+        fn AttachConsole(process_id: u32) -> i32;
+    }
+    // ATTACH_PARENT_PROCESS
+    unsafe {
+        AttachConsole(u32::MAX);
+    }
+}
+
+#[cfg(not(windows))]
+fn attach_parent_console() {}
+
 fn main() -> eframe::Result<()> {
+    if std::env::args().any(|a| a == "--version" || a == "-V") {
+        attach_parent_console();
+        println!(
+            "led-picker {} ({})",
+            env!("CARGO_PKG_VERSION"),
+            env!("BASILISK_GIT_HASH")
+        );
+        return Ok(());
+    }
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([400.0, 540.0])

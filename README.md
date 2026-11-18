@@ -57,7 +57,9 @@ with Mouse Dock Pro support and several new features. MIT licensed.
   `≈ N min to full` from the recent level slope.
 - **Status line in the menu**, **Refresh now**, **Reconnect devices** (closes
   every HID handle and rescans, for when a re-plugged dock or mouse keeps a
-  stale handle), a **Notifications** on/off toggle, and **Open log**.
+  stale handle), a **Notifications** on/off toggle, **Open log**, and a
+  disabled `v1.0.1 (hash)` line identifying the running build. The exe also
+  answers `--version` when launched from a console.
 - **Digits mode.** Launch with `--digits` to draw the raw battery number in
   the tray instead of the battery glyph.
 - **`status.json` feed + `battery-history.csv`.** Written to
@@ -204,6 +206,7 @@ pointing at `basilisk-power.exe`, or drop a shortcut in `shell:startup`.
 | `--brightness N` | LED brightness 0-100 (with any colour option) |
 | `--get-color` | Read the stored static colour and brightness from each device |
 | `--watch-led` | Print both devices' stored colour/effect once a second until stopped |
+| `--version` | Print the version and git hash, then exit |
 | `--digits` | Tray icon shows the raw percentage instead of the glyph |
 | `--simulate-battery N` | Report N% for every device (test toasts) |
 | `--simulate-game` | Behave as if a fullscreen game is running |

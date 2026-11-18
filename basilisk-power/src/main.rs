@@ -25,6 +25,9 @@ use razer_battery::{BatterySession, RazerError};
 
 use common::{label, measure_all, next_wait, Row};
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+const GIT_HASH: &str = env!("BASILISK_GIT_HASH");
+
 enum Mode {
     Once,
     Watch,
@@ -319,6 +322,7 @@ fn help() {
          \x20 --get-color    read the stored static colour and brightness\n\
          \x20 --watch-led    poll the stored LED colours and effects once a second\n\
          \x20 --debug        verbose HID logging\n\
+         \x20 --version      print the version and exit\n\
          \x20 -h, --help     this help\n\
          \n\
          background tray icon: run basilisk-power-tray"
@@ -339,6 +343,10 @@ fn main() {
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
         match arg.as_str() {
+            "--version" | "-V" => {
+                println!("basilisk-power-cli {VERSION} ({GIT_HASH})");
+                return;
+            }
             "--watch" => mode = Mode::Watch,
             "--interval" => match it.next().and_then(|v| v.parse::<u64>().ok()) {
                 Some(n) if n >= 1 => interval = Some(n),
