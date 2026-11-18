@@ -507,25 +507,22 @@ fn config_path() -> Option<PathBuf> {
     })
 }
 
-/// The last colour successfully written to a target.
-///
-/// This is the fallback when a device is asleep, undocked or running a
-/// transient effect, so the picker still opens on the colour the user chose.
-pub fn saved_color(target: Target) -> Option<Rgb> {
+/// Read one `key=value` entry from the small settings file.
+fn config_value(key: &str) -> Option<String> {
     let text = fs::read_to_string(config_path()?).ok()?;
     for line in text.lines() {
-        let Some((key, value)) = line.split_once('=') else {
+        let Some((name, value)) = line.split_once('=') else {
             continue;
         };
-        if key.trim() == target.key() {
-            return parse_hex_color(value);
+        if name.trim() == key {
+            return Some(value.trim().to_string());
         }
     }
     None
 }
 
-/// Remember a colour after it has been written successfully.
-pub fn save_color(target: Target, rgb: Rgb) {
+/// Insert or replace one entry, keeping the rest of the file intact.
+fn update_config(key: &str, value: &str) {
     let Some(path) = config_path() else {
         return;
     };
@@ -543,17 +540,54 @@ pub fn save_color(target: Target, rgb: Rgb) {
         })
         .unwrap_or_default();
 
-    let prefix = format!("{}=", target.key());
-    let value = format!("{prefix}{:02X}{:02X}{:02X}", rgb.0, rgb.1, rgb.2);
+    let prefix = format!("{key}=");
+    let entry = format!("{prefix}{value}");
     if let Some(line) = lines.iter_mut().find(|line| line.starts_with(&prefix)) {
-        *line = value;
+        *line = entry;
     } else {
-        lines.push(value);
+        lines.push(entry);
     }
 
     let mut text = lines.join("\n");
     text.push('\n');
     let _ = fs::write(path, text);
+}
+
+/// The last colour successfully written to a target.
+///
+/// This is the fallback when a device is asleep, undocked or running a
+/// transient effect, so the picker still opens on the colour the user chose.
+pub fn saved_color(target: Target) -> Option<Rgb> {
+    parse_hex_color(&config_value(target.key())?)
+}
+
+/// Remember a colour after it has been written successfully.
+pub fn save_color(target: Target, rgb: Rgb) {
+    update_config(
+        target.key(),
+        &format!("{:02X}{:02X}{:02X}", rgb.0, rgb.1, rgb.2),
+    );
+}
+
+/// The last brightness percentage the user chose (0-100).
+pub fn saved_brightness() -> Option<u8> {
+    config_value("brightness")?
+        .parse::<u8>()
+        .ok()
+        .map(|v| v.min(100))
+}
+
+/// Remember a brightness percentage after it has been applied.
+pub fn save_brightness(percent: u8) {
+    update_config("brightness", &percent.min(100).to_string());
+}
+
+/// Read one target's stored static colour, if it answers.
+pub fn read_color(target: Target) -> Option<Rgb> {
+    read_colors(&[target])
+        .into_iter()
+        .next()
+        .and_then(|reading| reading.color)
 }
 
 /// Pick the colour to show for a reading: live value first, then the last

@@ -85,8 +85,12 @@ with Mouse Dock Pro support and several new features. MIT licensed.
   breathing cycle while charging. The tray only re-applies the static colour
   when charging *stops* (or on first sync), never when charging starts, so the
   animation is left alone.
+- **Verified writes.** The CLI reads the colour back after writing and retries
+  once; the picker already re-applies until the device echoes the colour.
 - **Persisted.** Last applied colours live in
-  `%LOCALAPPDATA%\BasiliskPower\led-colors.txt` as `mouse=RRGGBB` / `dock=RRGGBB`.
+  `%LOCALAPPDATA%\BasiliskPower\led-colors.txt` as `mouse=RRGGBB` /
+  `dock=RRGGBB`. The last brightness is stored as `brightness=NN` and restored
+  when the picker starts.
 
 ## Dock quirks (learned the hard way)
 

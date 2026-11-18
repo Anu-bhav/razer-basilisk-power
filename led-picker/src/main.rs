@@ -167,7 +167,7 @@ impl LedApp {
             mouse,
             dock: DeviceColor::from_rgb(DEFAULT_DOCK),
             active: Target::Mouse,
-            brightness: 100,
+            brightness: lighting::saved_brightness().unwrap_or(100),
             pending: false,
             status: String::new(),
             status_ok: None,
@@ -424,7 +424,8 @@ impl LedApp {
             },
         ];
 
-        let brightness = Some(lighting::percent_to_brightness(self.brightness));
+        let brightness_percent = self.brightness;
+        let brightness = Some(lighting::percent_to_brightness(brightness_percent));
         let (tx, rx) = channel();
         std::thread::spawn(move || {
             // Write both colours, then re-apply each one until the device
@@ -458,6 +459,9 @@ impl LedApp {
                 }
             }
             let ok = outcomes.iter().all(|outcome| outcome.ok());
+            if ok {
+                lighting::save_brightness(brightness_percent);
+            }
             let _ = tx.send((summarize(&outcomes), ok));
         });
 

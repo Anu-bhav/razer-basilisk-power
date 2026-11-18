@@ -201,6 +201,25 @@ fn apply_requests(requests: &[lighting::ColorRequest], brightness: Option<u8>) {
             }
         }
     }
+
+    // Confirm the write landed. A stale handle or a dock/charge transition can
+    // accept the command without retaining the colour; one retry is enough.
+    for request in requests {
+        let mut landed = lighting::read_color(request.target) == Some(request.rgb);
+        if !landed {
+            let _ = lighting::apply(std::slice::from_ref(request), hw_brightness);
+            landed = lighting::read_color(request.target) == Some(request.rgb);
+        }
+        if landed {
+            println!("{}: verified", request.target.label());
+        } else {
+            eprintln!("{}: warning - read-back did not match", request.target.label());
+        }
+    }
+
+    if let Some(percent) = brightness {
+        lighting::save_brightness(percent);
+    }
 }
 
 fn print_colors(target: &str) {
