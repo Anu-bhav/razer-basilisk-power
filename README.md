@@ -55,6 +55,9 @@ with Mouse Dock Pro support and several new features. MIT licensed.
   (throttled to one per 10 s) so the tooltip shows the latest charging data.
 - **Time-to-full estimate.** While charging, the tooltip and widget show
   `≈ N min to full` from the recent level slope.
+- **Time-left estimate.** Off the dock, the tooltip shows `≈ N h left` from the
+  discharge slope (6 h window, samples every 15 min). A typical 8 %/h rate is
+  used until the first stable slope exists, so the line is never blank.
 - **Status line in the menu**, **Refresh now**, **Reconnect devices** (closes
   every HID handle and rescans, for when a re-plugged dock or mouse keeps a
   stale handle), a **Notifications** on/off toggle, **Open log**, and a

@@ -43,6 +43,23 @@ const DOCK_DETECT_IDLE: Duration = Duration::from_secs(8);
 /// Window of level samples used for the time-to-full estimate.
 const CHARGE_HISTORY_WINDOW: Duration = Duration::from_secs(45 * 60);
 
+/// How far back to look for the discharge slope. The mouse loses a percent
+/// every several minutes, so a long window is needed for a stable rate.
+const DISCHARGE_HISTORY_WINDOW: Duration = Duration::from_secs(6 * 60 * 60);
+
+/// Add a discharge sample at least this often, even when the level has not
+/// changed, so the slope has a real time span to measure.
+const DISCHARGE_SAMPLE_INTERVAL: Duration = Duration::from_secs(15 * 60);
+
+/// A measured slope keeps improving as samples accumulate, but a minimum span
+/// stops a single noisy one-percent step from claiming a wildly wrong ETA.
+const DISCHARGE_MIN_SPAN_MIN: f64 = 20.0;
+
+/// Typical drain on this mouse, percent per hour, until a measured slope is
+/// available. Mirrors the charge fallback: useful immediately, replaced by
+/// real data after the first stable samples.
+const TYPICAL_DISCHARGE_RATE: f64 = 8.0;
+
 /// Typical dock charge rate for this mouse, in percent per minute. Used for
 /// the time-to-full estimate until the real slope has been measured from two
 /// rising samples -- roughly a percent a minute from empty to full on the dock.
@@ -137,6 +154,12 @@ pub struct MemoryDevice {
     /// Minutes to full while charging, from the level slope. `None` when
     /// unknown or not charging.
     pub eta_full_min: Option<i32>,
+    /// Recent (time, level) samples while off the dock, for the time-left
+    /// estimate. Cleared when charging resumes.
+    discharge_history: Vec<(Instant, i32)>,
+    /// Minutes until empty while off the dock. `None` when unknown or
+    /// charging.
+    pub eta_empty_min: Option<i32>,
 }
 
 impl MemoryDevice {
@@ -152,6 +175,8 @@ impl MemoryDevice {
             reported_charging: false,
             charge_history: Vec::new(),
             eta_full_min: None,
+            discharge_history: Vec::new(),
+            eta_empty_min: None,
         }
     }
 }
@@ -922,6 +947,7 @@ fn read_battery(
         .retain(|(t, _)| now.duration_since(*t) <= CHARGE_HISTORY_WINDOW);
 
     device.eta_full_min = None;
+    device.eta_empty_min = None;
     if device.is_charging {
         // At 100% there is nothing left to wait for, and the skin hides the
         // line entirely. At 99% the last percent can take far longer than the
@@ -957,7 +983,53 @@ fn read_battery(
             level.map(|l| ((100 - l).max(1) as f64 / TYPICAL_CHARGE_RATE).round() as i32)
                 .map(|eta| eta.clamp(1, 600) as i32)
         });
+
+        // A charge session invalidates any discharge slope.
+        device.discharge_history.clear();
+    } else if let Some(level) = device.battery_level.filter(|l| *l > 0) {
+        let due = match device.discharge_history.last() {
+            None => true,
+            Some((t, previous)) => {
+                *previous != level || now.duration_since(*t) >= DISCHARGE_SAMPLE_INTERVAL
+            }
+        };
+        if due {
+            device.discharge_history.push((now, level));
+        }
+        device
+            .discharge_history
+            .retain(|(t, _)| now.duration_since(*t) <= DISCHARGE_HISTORY_WINDOW);
+
+        device.eta_empty_min = estimate_discharge(&device.discharge_history, level)
+            .or_else(|| fallback_discharge_eta(level));
     }
+}
+
+/// Time until empty from the discharge samples, in minutes.
+///
+/// Uses the oldest and newest sample so slow, steady drain still produces an
+/// answer. Returns `None` until the level has actually fallen over a long
+/// enough span; the caller then falls back to a typical drain rate.
+fn estimate_discharge(samples: &[(Instant, i32)], level: i32) -> Option<i32> {
+    let (t0, l0) = *samples.first()?;
+    let (t1, l1) = *samples.last()?;
+    let span_min = (t1 - t0).as_secs_f64() / 60.0;
+    let dropped = l0 - l1;
+    if span_min < DISCHARGE_MIN_SPAN_MIN || dropped <= 0 || level <= 0 {
+        return None;
+    }
+    let rate_per_min = dropped as f64 / span_min;
+    let eta = (level as f64 / rate_per_min).round() as i32;
+    Some(eta.clamp(1, 48 * 60))
+}
+
+/// Immediate estimate used until a real slope exists.
+fn fallback_discharge_eta(level: i32) -> Option<i32> {
+    if level <= 0 {
+        return None;
+    }
+    let eta = (level as f64 / TYPICAL_DISCHARGE_RATE * 60.0).round() as i32;
+    Some(eta.clamp(1, 48 * 60))
 }
 
 fn check_full(device: &mut MemoryDevice, notify: &Notify, enabled: &AtomicBool) {
@@ -984,7 +1056,10 @@ fn tooltip_line(device: &MemoryDevice) -> String {
             Some(mins) => format!("{name}: {level}% ⚡ ({})", format_eta(mins)),
             None => format!("{name}: {level}% ⚡"),
         },
-        (Some(level), false) => format!("{name}: {level}%"),
+        (Some(level), false) => match device.eta_empty_min {
+            Some(mins) => format!("{name}: {level}% ({} left)", format_eta(mins)),
+            None => format!("{name}: {level}%"),
+        },
     }
 }
 
@@ -1001,5 +1076,70 @@ fn truncate_chars(s: &str, max: usize) -> String {
     match s.char_indices().nth(max) {
         Some((idx, _)) => s[..idx].to_owned(),
         None => s.to_owned(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample(minutes_ago: u64, level: i32) -> (Instant, i32) {
+        (
+            Instant::now() - Duration::from_secs(minutes_ago * 60),
+            level,
+        )
+    }
+
+    #[test]
+    fn discharge_eta_from_measured_slope() {
+        // 4 points lost over 60 minutes = 4%/h; 80% left = 20 h.
+        let samples = [sample(60, 84), sample(30, 82), sample(0, 80)];
+        assert_eq!(estimate_discharge(&samples, 80), Some(20 * 60));
+    }
+
+    #[test]
+    fn discharge_eta_ignores_short_or_rising_history() {
+        let rising = [sample(20, 70), sample(0, 80)];
+        assert_eq!(estimate_discharge(&rising, 80), None);
+        let short = [sample(5, 80), sample(0, 79)];
+        assert_eq!(estimate_discharge(&short, 79), None);
+    }
+
+    #[test]
+    fn discharge_eta_is_bounded() {
+        // A huge measured rate still reports a sane upper bound.
+        let fast = [sample(60, 100), sample(0, 1)];
+        assert_eq!(estimate_discharge(&fast, 1), Some(1));
+    }
+
+    #[test]
+    fn fallback_scales_with_level() {
+        assert_eq!(fallback_discharge_eta(80), Some(10 * 60));
+        assert_eq!(fallback_discharge_eta(0), None);
+    }
+
+    #[test]
+    fn tooltip_shows_time_left_when_idle() {
+        let mut device = MemoryDevice::new("Razer Basilisk V3 Pro".to_string());
+        device.battery_level = Some(80);
+        device.eta_empty_min = Some(10 * 60);
+        assert_eq!(
+            tooltip_line(&device),
+            "Basilisk V3 Pro: 80% (≈ 10 h 00 min left)"
+        );
+
+        device.eta_empty_min = None;
+        assert_eq!(tooltip_line(&device), "Basilisk V3 Pro: 80%");
+    }
+
+    #[test]
+    fn tooltip_prefers_charging_eta() {
+        let mut device = MemoryDevice::new("Razer Basilisk V3 Pro".to_string());
+        device.battery_level = Some(50);
+        device.is_charging = true;
+        device.eta_full_min = Some(40);
+        let line = tooltip_line(&device);
+        assert!(line.contains('⚡'), "line was {line}");
+        assert!(line.contains("40 min"), "line was {line}");
     }
 }
