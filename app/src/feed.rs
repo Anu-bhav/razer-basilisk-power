@@ -38,6 +38,11 @@ pub struct DeviceSnapshot<'a> {
 /// counts as "docked" while the mouse is actually on it charging. Lift the
 /// mouse off and it is running on battery: still relayed through the dock,
 /// but wireless as far as the user is concerned.
+///
+/// At 100% the dock can stop asserting its charging flag even while the mouse
+/// is still sitting on it, so the feed then says "wireless". This is expected:
+/// the hardware exposes no separate dock-presence signal, and inventing one
+/// would be wrong after the mouse is lifted.
 pub fn source_of(name: &str, charging: bool) -> &'static str {
     if name.contains("(Wired)") {
         "wired"
@@ -220,6 +225,17 @@ mod tests {
             true,
             content
         ));
+    }
+
+    #[test]
+    fn source_word_follows_the_charging_flag() {
+        let dock_name = "Razer Basilisk V3 Pro (Mouse Dock Pro)";
+        assert_eq!(source_of(dock_name, true), "dock");
+        // Full battery on the dock: the flag drops, so the word does too.
+        assert_eq!(source_of(dock_name, false), "wireless");
+        assert_eq!(source_of("Razer Basilisk V3 Pro (Wired)", false), "wired");
+        assert_eq!(source_of("Razer Basilisk V3 Pro (Wireless)", false), "wireless");
+        assert_eq!(source_of("Razer Basilisk V3 Pro", false), "unknown");
     }
 
     #[test]

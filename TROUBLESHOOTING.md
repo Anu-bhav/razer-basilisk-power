@@ -51,9 +51,15 @@ comparison; it breaks across midnight and time zones.
   battery. The tray keeps the last known value instead of showing 0 %.
 - While docked, the battery is reported through the Mouse Dock Pro
   (`0x00A4`); while wireless it comes from the mouse (`0x00AB`). The widget's
-  source word (`DOCKED` / `WIRELESS`) reflects which path answered.
-- Charging is read from the dock relay's `0x1F` flag. If the flag is
-  unavailable, the tray clears charging instead of freezing "charging" on.
+  source word (`DOCKED` / `WIRELESS`) reflects the charging flag, not physical
+  dock presence.
+- At 100 % the dock can stop asserting charging while the mouse is still on it,
+  so `WIRELESS` at 100 % is expected. The protocol has no separate
+  "on the dock" signal, and guessing from battery level would mislabel a
+  just-lifted mouse.
+- Charging is read from the dock relay's `0x1F` flag. A single failed read is
+  ignored; the tray clears charging only after two consecutive failures, so
+  one busy relay reply does not freeze or flicker the state.
 - Hover the icon to force a throttled refresh (at most once per 10 s), or use
   **Refresh now**.
 

@@ -328,6 +328,11 @@ then refresh Rainmeter. `deploy.ps1` does this for you (see
 | `updated_unix` | Unix epoch of the write, for exact freshness checks |
 | `poll` | Advisory seconds until the next scheduled HID battery read (`1` = this tick just read). The bundled skin uses its own fixed cadence and ignores this field. |
 
+`source` follows the charging flag, not physical dock presence. At 100 % the
+dock may stop asserting charging while the mouse is still sitting on it, so a
+`wireless` source at full is expected; the hardware exposes no separate
+dock-presence signal.
+
 `battery-history.csv` appends a row per reading (`date,time,level,charging,source`),
 trimmed to 2000 rows / 1 MB.
 

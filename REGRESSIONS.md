@@ -11,10 +11,15 @@ charging code.
 - **The dock's own red→green breathing is preserved.** The tray never writes a
   static colour when charging *starts*; it only restores the saved colour when
   charging *stops* (and once on startup).
-- **Dock/undock and charge changes reach the feed within a second**, not at the
-  next adaptive poll.
-- **A failed charging read clears the state**; it must not freeze the previous
-  value.
+- **Undocking while charging reaches the feed within about 10 s.** The tray
+  probes only the charging flag every 5 s and confirms a change on two
+  consecutive reads; using the mouse still forces an immediate full read.
+- **A single failed charging read is ignored; two consecutive failures clear
+  the state.** It must not freeze the previous value, and one busy relay reply
+  must not flicker the widget.
+- **`source` follows the charging flag, not physical dock presence.** At 100 %
+  the dock may stop asserting charging, so `WIRELESS` while sitting on the dock
+  is expected. Do not invent a presence bit; the protocol has none.
 - **A 0 % dock-relay reading is a link blip**, not an empty battery. Keep the
   last known level.
 - **Battery reaches 100 %** when the raw value is `255`; charging stops and the
@@ -35,6 +40,11 @@ charging code.
 - `level` is `-1` or `0..100`; `charging` is `0|1`; `source` is one of
   `dock|wireless|wired|none|unknown`; `poll >= 1`.
 - `updated_unix` is the write time; consumers may use it for freshness.
+- The file is rewritten on every data change **and at least every 30 s**, so
+  `updated_unix` stays well inside the widget's 90 s stale threshold without
+  rewriting identical content every loop.
+- `poll` is an advisory HID-read hint, **not** the write cadence. The bundled
+  skin ignores it and reads at its own fixed 2 s interval.
 
 ## Widget
 
@@ -71,7 +81,10 @@ charging code.
   `cargo test` alone is not enough; the gate cross-compiles the tray tests and
   runs them on Windows.
 - Only deploy through `deploy.ps1`: it builds, copies, verifies SHA-256,
-  restarts Rainmeter, checks the feed, and rolls back on failure.
+  restarts Rainmeter, checks the feed, and rolls back on failure. The skin is
+  staged before replacement and restored on failure; the previous
+  `basilisk.ini` is kept as `%LOCALAPPDATA%\BasiliskPower\basilisk.ini.backup`,
+  which `maintenance.rs` never age-deletes.
 - No feature is done until `verify.ps1` passes (builds + all tests + feed +
   widget idle/charging + LED read-back).
 - Keep `Cargo.lock` in both workspaces.
