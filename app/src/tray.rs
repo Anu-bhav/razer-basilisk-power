@@ -113,12 +113,7 @@ fn adaptive_wait(level: Option<i32>, charging: bool, system_idle: bool) -> Durat
 /// its own fixed 2 s read interval rather than this field.
 /// `read_this_round` is true when this tick re-read a device, which happens on
 /// every level or charge-state change; 1 marks that fresh read.
-fn poll_hint(
-    level: Option<i32>,
-    charging: bool,
-    system_idle: bool,
-    read_this_round: bool,
-) -> u64 {
+fn poll_hint(level: Option<i32>, charging: bool, system_idle: bool, read_this_round: bool) -> u64 {
     if read_this_round {
         // Something just changed: the skin's fast path is poll <= 2.
         return 1;
@@ -304,8 +299,12 @@ struct MenuItems {
 /// `&'static str`, and this lives for the whole process anyway.
 fn version_text() -> &'static str {
     Box::leak(
-        format!("v{} ({})", env!("CARGO_PKG_VERSION"), env!("BASILISK_GIT_HASH"))
-            .into_boxed_str(),
+        format!(
+            "v{} ({})",
+            env!("CARGO_PKG_VERSION"),
+            env!("BASILISK_GIT_HASH")
+        )
+        .into_boxed_str(),
     )
 }
 
@@ -808,6 +807,7 @@ impl TrayApp {
         });
     }
 
+    #[allow(clippy::too_many_arguments)] // event-loop plumbing, all used
     fn run_event_loop(
         &self,
         event_loop: tao::event_loop::EventLoop<TrayEvent>,
@@ -863,9 +863,7 @@ impl TrayApp {
                             }
                             Err(e) => {
                                 error!("Failed to write diagnostics: {e}");
-                                system::show_error(&format!(
-                                    "Could not write diagnostics:\n{e}"
-                                ));
+                                system::show_error(&format!("Could not write diagnostics:\n{e}"));
                             }
                         }
                     }
@@ -874,15 +872,12 @@ impl TrayApp {
                         let want = !menu_items.autostart.is_checked();
                         match system::set_autostart(want) {
                             Ok(()) => {
-                                let _ = menu_items.autostart.set_checked(want);
-                                info!(
-                                    "Autostart {}",
-                                    if want { "enabled" } else { "disabled" }
-                                );
+                                menu_items.autostart.set_checked(want);
+                                info!("Autostart {}", if want { "enabled" } else { "disabled" });
                             }
                             Err(e) => {
                                 error!("Failed to change autostart: {e}");
-                                let _ = menu_items.autostart.set_checked(!want);
+                                menu_items.autostart.set_checked(!want);
                             }
                         }
                     }
@@ -890,7 +885,7 @@ impl TrayApp {
                     if event.id == menu_items.notifications.id() {
                         let now_checked = !notifications_enabled.load(Ordering::Relaxed);
                         notifications_enabled.store(now_checked, Ordering::Relaxed);
-                        let _ = menu_items.notifications.set_checked(now_checked);
+                        menu_items.notifications.set_checked(now_checked);
                         info!(
                             "Notifications {}",
                             if now_checked { "enabled" } else { "disabled" }
@@ -916,8 +911,7 @@ impl TrayApp {
                     tray_event,
                     TrayIconEvent::Enter { .. } | TrayIconEvent::Move { .. }
                 );
-                let due =
-                    last_hover_refresh.map_or(true, |t| t.elapsed() >= HOVER_REFRESH_INTERVAL);
+                let due = last_hover_refresh.is_none_or(|t| t.elapsed() >= HOVER_REFRESH_INTERVAL);
                 if hover && due {
                     last_hover_refresh = Some(Instant::now());
                     trace!("Tray icon hover, requesting fresh battery data");
@@ -940,7 +934,7 @@ impl TrayApp {
         };
 
         if guard.is_empty() {
-            menu_items.status.set_text("No device connected".to_owned());
+            menu_items.status.set_text("No device connected");
             if let Ok(icon) = Self::get_battery_icon(None, false, digits) {
                 let _ = tray.set_icon(Some(icon));
             }
@@ -1036,7 +1030,10 @@ fn read_battery(
             // keep the last known value, don't trust the charging flag from
             // the same report, and show "not responding" only if we never
             // had a real reading.
-            warn!("{}: 0% reading (link blip?), keeping last known value", device.name);
+            warn!(
+                "{}: 0% reading (link blip?), keeping last known value",
+                device.name
+            );
             trusted_charging = None;
             if device.battery_level.is_none() {
                 device.stale = true;
@@ -1156,8 +1153,9 @@ fn read_battery(
         device.eta_full_min = measured.or_else(|| {
             // Fallback: this mouse charges at roughly a percent a minute on the
             // dock. Enough for a useful line while the real slope is measured.
-            level.map(|l| ((100 - l).max(1) as f64 / TYPICAL_CHARGE_RATE).round() as i32)
-                .map(|eta| eta.clamp(1, 600) as i32)
+            level
+                .map(|l| ((100 - l).max(1) as f64 / TYPICAL_CHARGE_RATE).round() as i32)
+                .map(|eta| eta.clamp(1, 600))
         });
 
         // A charge session invalidates any discharge slope.

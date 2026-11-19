@@ -47,7 +47,11 @@ pub fn source_of(name: &str, charging: bool) -> &'static str {
     if name.contains("(Wired)") {
         "wired"
     } else if name.contains("(Mouse Dock Pro)") {
-        if charging { "dock" } else { "wireless" }
+        if charging {
+            "dock"
+        } else {
+            "wireless"
+        }
     } else if name.contains("(Wireless)") {
         "wireless"
     } else {
@@ -120,8 +124,8 @@ impl Feed {
         let json =
             format!("{{{content},\"updated\":\"{updated}\",\"updated_unix\":{updated_unix}}}");
         let tmp = dir.join("status.json.tmp");
-        let write = std::fs::write(&tmp, json.as_bytes())
-            .and_then(|_| std::fs::rename(&tmp, &path));
+        let write =
+            std::fs::write(&tmp, json.as_bytes()).and_then(|_| std::fs::rename(&tmp, &path));
         if write.is_ok() {
             self.last_status = Some(content);
             self.last_status_write = Some(now);
@@ -139,7 +143,9 @@ impl Feed {
         let due = match self.last_history {
             None => true,
             Some((t, l, c)) => {
-                level != l || c != d.charging || now.duration_since(t) >= Duration::from_secs(15 * 60)
+                level != l
+                    || c != d.charging
+                    || now.duration_since(t) >= Duration::from_secs(15 * 60)
             }
         };
         if !due {
@@ -167,10 +173,8 @@ impl Feed {
         if let Ok(meta) = std::fs::metadata(&path) {
             if meta.len() > 1_000_000 {
                 if let Ok(text) = std::fs::read_to_string(&path) {
-                    let lines: Vec<&str> = text
-                        .lines()
-                        .filter(|l| !l.starts_with("date,"))
-                        .collect();
+                    let lines: Vec<&str> =
+                        text.lines().filter(|l| !l.starts_with("date,")).collect();
                     let skip = lines.len().saturating_sub(2000);
                     let mut out = String::from("date,time,level,charging,source\n");
                     for line in &lines[skip..] {
@@ -234,7 +238,10 @@ mod tests {
         // Full battery on the dock: the flag drops, so the word does too.
         assert_eq!(source_of(dock_name, false), "wireless");
         assert_eq!(source_of("Razer Basilisk V3 Pro (Wired)", false), "wired");
-        assert_eq!(source_of("Razer Basilisk V3 Pro (Wireless)", false), "wireless");
+        assert_eq!(
+            source_of("Razer Basilisk V3 Pro (Wireless)", false),
+            "wireless"
+        );
         assert_eq!(source_of("Razer Basilisk V3 Pro", false), "unknown");
     }
 

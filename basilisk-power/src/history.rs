@@ -26,15 +26,19 @@ impl Window {
         if text == "all" {
             return Ok(Self(None));
         }
-        if let Some(days) = text.strip_suffix('d').and_then(|n| n.parse::<i64>().ok()) {
-            if days > 0 {
-                return Ok(Self(Some(Duration::days(days))));
-            }
+        if let Some(days) = text
+            .strip_suffix('d')
+            .and_then(|n| n.parse::<i64>().ok())
+            .filter(|&days| days > 0)
+        {
+            return Ok(Self(Some(Duration::days(days))));
         }
-        if let Some(hours) = text.strip_suffix('h').and_then(|n| n.parse::<i64>().ok()) {
-            if hours > 0 {
-                return Ok(Self(Some(Duration::hours(hours))));
-            }
+        if let Some(hours) = text
+            .strip_suffix('h')
+            .and_then(|n| n.parse::<i64>().ok())
+            .filter(|&hours| hours > 0)
+        {
+            return Ok(Self(Some(Duration::hours(hours))));
         }
         Err("--history expects a window such as 7d, 24h or all".to_string())
     }
@@ -94,7 +98,7 @@ fn parse_sample(line: &str) -> Option<Sample> {
     // The source column is informational here; tolerate it missing.
     let _source = fields.next();
 
-    if level < 0 || level > 100 {
+    if !(0..=100).contains(&level) {
         return None;
     }
     let date = NaiveDate::parse_from_str(date, "%Y-%m-%d").ok()?;
@@ -139,8 +143,8 @@ pub fn summarize(samples: &[Sample], window: Window, now: NaiveDateTime) -> Summ
     // samples are less than 20 minutes apart are merged.
     let mut previous_charge: Option<NaiveDateTime> = None;
     for sample in rows.iter().filter(|s| s.charging) {
-        let starts_new = previous_charge
-            .is_none_or(|previous| (sample.when - previous) > Duration::minutes(20));
+        let starts_new =
+            previous_charge.is_none_or(|previous| (sample.when - previous) > Duration::minutes(20));
         if starts_new {
             summary.charge_sessions += 1;
         }
@@ -162,11 +166,9 @@ pub fn summarize(samples: &[Sample], window: Window, now: NaiveDateTime) -> Summ
         if elapsed <= 0 || elapsed > max_gap {
             continue;
         }
-        if let Some(delta) = a.level.checked_sub(b.level) {
-            if delta > 0 {
-                drop += i64::from(delta);
-                seconds += elapsed;
-            }
+        if let Some(delta) = a.level.checked_sub(b.level).filter(|&delta| delta > 0) {
+            drop += i64::from(delta);
+            seconds += elapsed;
         }
     }
     if seconds > 0 {
@@ -209,7 +211,11 @@ pub fn render(summary: &Summary, window: Window) -> String {
         summary.samples,
         summary.charging_fraction() * 100.0,
         summary.charge_sessions,
-        if summary.charge_sessions == 1 { "" } else { "s" }
+        if summary.charge_sessions == 1 {
+            ""
+        } else {
+            "s"
+        }
     ));
 
     match summary.drain_per_hour {
@@ -227,8 +233,11 @@ pub fn render(summary: &Summary, window: Window) -> String {
 
 /// Default history path (`%LOCALAPPDATA%\BasiliskPower\battery-history.csv`).
 pub fn default_path() -> Option<std::path::PathBuf> {
-    std::env::var_os("LOCALAPPDATA")
-        .map(|base| std::path::PathBuf::from(base).join("BasiliskPower").join("battery-history.csv"))
+    std::env::var_os("LOCALAPPDATA").map(|base| {
+        std::path::PathBuf::from(base)
+            .join("BasiliskPower")
+            .join("battery-history.csv")
+    })
 }
 
 /// Read and summarise a history file. Used by the CLI.

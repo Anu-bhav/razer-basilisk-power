@@ -250,7 +250,12 @@ const DASH_GLYPH: [u8; 5] = [0b000, 0b000, 0b111, 0b000, 0b000];
 /// Renders the raw battery number ("36", "100" or "--") instead of the
 /// battery glyph, colored by severity, with a thin green underline while
 /// charging. Same supersampled pipeline as `render`.
-pub fn render_digits(size: u32, level: Option<i32>, charging: bool, light_taskbar: bool) -> Vec<u8> {
+pub fn render_digits(
+    size: u32,
+    level: Option<i32>,
+    charging: bool,
+    light_taskbar: bool,
+) -> Vec<u8> {
     let color = tray_style(level, charging, light_taskbar).fill;
     let text = match level {
         Some(l) => l.to_string(),

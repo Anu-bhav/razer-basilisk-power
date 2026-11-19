@@ -6,7 +6,7 @@
 //! Enable debug logging to troubleshoot connection issues:
 //!     RUST_LOG=debug cargo run --example check_battery
 
-use razer_battery::{find_devices, get_battery_info, devices::custom_device};
+use razer_battery::{devices::custom_device, find_devices, get_battery_info};
 
 fn main() {
     env_logger::init();
@@ -32,8 +32,10 @@ fn main() {
             println!("Found {} device(s):", devices.len());
             println!();
             for dev in &devices {
-                print!("  {} (PID {:#06x}, iface {}) ... ",
-                    dev.name, dev.pid, dev.interface);
+                print!(
+                    "  {} (PID {:#06x}, iface {}) ... ",
+                    dev.name, dev.pid, dev.interface
+                );
 
                 match get_battery_info(dev) {
                     Ok(info) => {
@@ -44,8 +46,12 @@ fn main() {
                     Err(e) => {
                         println!("ERROR: {}", e);
                         if cfg!(target_os = "macos") && format!("{}", e).contains("not permitted") {
-                            println!("         macOS: Grant Input Monitoring permission to your terminal app");
-                            println!("         (System Settings > Privacy & Security > Input Monitoring)");
+                            println!(
+                                "         macOS: Grant Input Monitoring permission to your terminal app"
+                            );
+                            println!(
+                                "         (System Settings > Privacy & Security > Input Monitoring)"
+                            );
                         } else {
                             println!("         Try running with RUST_LOG=debug for more info");
                         }
@@ -69,5 +75,9 @@ fn main() {
 fn battery_bar(pct: u8) -> String {
     let filled = (pct as usize) / 5;
     let empty = 20 - filled;
-    format!("[{}{}]", "\u{2588}".repeat(filled), "\u{2591}".repeat(empty))
+    format!(
+        "[{}{}]",
+        "\u{2588}".repeat(filled),
+        "\u{2591}".repeat(empty)
+    )
 }

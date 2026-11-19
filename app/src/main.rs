@@ -22,7 +22,11 @@ use tray::TrayApp;
 
 /// The version line shown by `--version` and the tray menu.
 pub fn version_line() -> String {
-    format!("{} ({})", env!("CARGO_PKG_VERSION"), env!("BASILISK_GIT_HASH"))
+    format!(
+        "{} ({})",
+        env!("CARGO_PKG_VERSION"),
+        env!("BASILISK_GIT_HASH")
+    )
 }
 
 fn main() {
@@ -58,10 +62,9 @@ fn main() {
     // instance's log, and init_file_logger truncates it.
     if options.diagnostics {
         match diagnostics::write_bundle() {
-            Ok(path) => system::show_version(&format!(
-                "Diagnostics written to:\n{}",
-                path.display()
-            )),
+            Ok(path) => {
+                system::show_version(&format!("Diagnostics written to:\n{}", path.display()))
+            }
             Err(e) => {
                 system::show_error(&format!("Could not write diagnostics:\n{e}"));
                 std::process::exit(1);

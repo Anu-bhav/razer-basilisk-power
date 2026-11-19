@@ -35,7 +35,14 @@ pub fn custom_device(
     usage: u16,
     transaction_id: u8,
 ) -> RazerDevice {
-    RazerDevice { name, pid, interface, usage_page, usage, transaction_id }
+    RazerDevice {
+        name,
+        pid,
+        interface,
+        usage_page,
+        usage,
+        transaction_id,
+    }
 }
 
 // ── Known device database ───────────────────────────────────────────────
@@ -75,40 +82,33 @@ macro_rules! dev {
 
 pub const KNOWN_DEVICES: &[RazerDevice] = &[
     // ── DeathAdder ──────────────────────────────────────────────────
-    dev!("Razer DeathAdder V3 Pro (Wireless)",       0x00B6, 0, 0x1f),
+    dev!("Razer DeathAdder V3 Pro (Wireless)", 0x00B6, 0, 0x1f),
     dev!("Razer DeathAdder V3 Pro (Wired/Wireless)", 0x00B7, 0, 0x1f),
-    dev!("Razer DeathAdder V3 HyperSpeed",           0x00B8, 0, 0x1f),
-    dev!("Razer DeathAdder V2 Pro (Wireless)",       0x007C, 2, 0x3f),
-    dev!("Razer DeathAdder V2 X HyperSpeed",         0x009C, 0, 0x1f),
-
+    dev!("Razer DeathAdder V3 HyperSpeed", 0x00B8, 0, 0x1f),
+    dev!("Razer DeathAdder V2 Pro (Wireless)", 0x007C, 2, 0x3f),
+    dev!("Razer DeathAdder V2 X HyperSpeed", 0x009C, 0, 0x1f),
     // ── Viper ───────────────────────────────────────────────────────
     // NOTE: Viper Ultimate uses interface 2 and transaction_id 0x3f
-    dev!("Razer Viper Ultimate (Wired)",             0x007A, 2, 0x3f),
-    dev!("Razer Viper Ultimate (Wireless)",          0x007B, 2, 0x3f),
-    dev!("Razer Viper V2 Pro (Wireless)",            0x00A5, 0, 0x1f),
-    dev!("Razer Viper V3 Pro (Wireless)",            0x00C2, 0, 0x1f),
-    dev!("Razer Viper V3 HyperSpeed",                0x00C3, 0, 0x1f),
+    dev!("Razer Viper Ultimate (Wired)", 0x007A, 2, 0x3f),
+    dev!("Razer Viper Ultimate (Wireless)", 0x007B, 2, 0x3f),
+    dev!("Razer Viper V2 Pro (Wireless)", 0x00A5, 0, 0x1f),
+    dev!("Razer Viper V3 Pro (Wireless)", 0x00C2, 0, 0x1f),
+    dev!("Razer Viper V3 HyperSpeed", 0x00C3, 0, 0x1f),
     dev!("Razer Viper Mini Signature Ed. (Wireless)", 0x00BA, 0, 0x1f),
-
     // ── Basilisk ────────────────────────────────────────────────────
     // NOTE: Basilisk Ultimate uses interface 2 and transaction_id 0x3f
-    dev!("Razer Basilisk Ultimate (Receiver)",       0x0088, 2, 0x3f),
-    dev!("Razer Basilisk V3 Pro (Wireless)",         0x00AA, 0, 0x1f),
-    dev!("Razer Basilisk V3 X HyperSpeed",           0x00B9, 0, 0x1f),
-
+    dev!("Razer Basilisk Ultimate (Receiver)", 0x0088, 2, 0x3f),
+    dev!("Razer Basilisk V3 Pro (Wireless)", 0x00AA, 0, 0x1f),
+    dev!("Razer Basilisk V3 X HyperSpeed", 0x00B9, 0, 0x1f),
     // ── Naga ────────────────────────────────────────────────────────
-    dev!("Razer Naga Pro (Wireless)",                0x008F, 2, 0x1f),
-    dev!("Razer Naga V2 HyperSpeed",                 0x00B3, 0, 0x1f),
-
+    dev!("Razer Naga Pro (Wireless)", 0x008F, 2, 0x1f),
+    dev!("Razer Naga V2 HyperSpeed", 0x00B3, 0, 0x1f),
     // ── Orochi ──────────────────────────────────────────────────────
-    dev!("Razer Orochi V2",                          0x0094, 0, 0x1f),
-
+    dev!("Razer Orochi V2", 0x0094, 0, 0x1f),
     // ── Mamba ───────────────────────────────────────────────────────
-    dev!("Razer Mamba Wireless (Receiver)",          0x0072, 2, 0x3f),
-
+    dev!("Razer Mamba Wireless (Receiver)", 0x0072, 2, 0x3f),
     // ── Cobra ───────────────────────────────────────────────────────
-    dev!("Razer Cobra Pro (Wireless)",               0x00AF, 0, 0x1f),
-
+    dev!("Razer Cobra Pro (Wireless)", 0x00AF, 0, 0x1f),
     // ── HyperPolling ────────────────────────────────────────────────
-    dev!("Razer HyperPolling Wireless Dongle",       0x00C0, 0, 0x1f),
+    dev!("Razer HyperPolling Wireless Dongle", 0x00C0, 0, 0x1f),
 ];

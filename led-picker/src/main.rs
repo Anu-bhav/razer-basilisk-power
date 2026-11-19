@@ -20,7 +20,7 @@
 
 #![windows_subsystem = "windows"]
 
-use std::sync::mpsc::{channel, Receiver};
+use std::sync::mpsc::{Receiver, channel};
 use std::time::{Duration, Instant};
 
 use eframe::egui;
@@ -151,11 +151,9 @@ impl LedApp {
         style.spacing.button_padding = egui::vec2(10.0, 5.0);
         cc.egui_ctx.set_style(style);
 
-        let ring = cc.egui_ctx.load_texture(
-            "hue-ring",
-            make_ring(512),
-            egui::TextureOptions::LINEAR,
-        );
+        let ring =
+            cc.egui_ctx
+                .load_texture("hue-ring", make_ring(512), egui::TextureOptions::LINEAR);
         let mouse = DeviceColor::from_rgb(DEFAULT_MOUSE);
         let square = cc.egui_ctx.load_texture(
             "sv-square",
@@ -318,17 +316,11 @@ impl LedApp {
                         {
                             lighting::save_color(request.target, request.rgb);
                         }
-                        self.status = format!(
-                            "Live · {} {}",
-                            request.target.label(),
-                            hex(request.rgb)
-                        );
+                        self.status =
+                            format!("Live · {} {}", request.target.label(), hex(request.rgb));
                         self.status_ok = None;
                     } else {
-                        self.status = format!(
-                            "Live preview failed: {}",
-                            live_error(&outcome)
-                        );
+                        self.status = format!("Live preview failed: {}", live_error(&outcome));
                         self.status_ok = Some(false);
                     }
                 }
@@ -445,8 +437,9 @@ impl LedApp {
                         break;
                     }
                 }
-                if let Some(outcome) =
-                    outcomes.iter_mut().find(|outcome| outcome.target == request.target)
+                if let Some(outcome) = outcomes
+                    .iter_mut()
+                    .find(|outcome| outcome.target == request.target)
                 {
                     outcome.steps.push(lighting::Step {
                         label: "verify",
@@ -473,10 +466,8 @@ impl LedApp {
 
     fn paint_wheel(&mut self, ui: &mut egui::Ui) {
         let size = 190.0;
-        let (rect, response) = ui.allocate_exact_size(
-            egui::vec2(size, size),
-            egui::Sense::click_and_drag(),
-        );
+        let (rect, response) =
+            ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::click_and_drag());
 
         let center = rect.center();
         let outer = size * 0.5;
@@ -504,23 +495,24 @@ impl LedApp {
             self.drag_zone = response.interact_pointer_pos().and_then(zone_at);
         }
 
-        if let (Some(zone), Some(pos)) = (self.drag_zone, response.interact_pointer_pos()) {
-            if response.dragged() || response.clicked() {
-                match zone {
-                    WheelZone::Ring => {
-                        let dx = pos.x - center.x;
-                        let dy = center.y - pos.y;
-                        let hue = dy.atan2(dx).rem_euclid(TAU) / TAU;
-                        self.set_active_hue(hue);
-                    }
-                    WheelZone::Square => {
-                        let sat = ((pos.x - square_rect.left()) / side).clamp(0.0, 1.0);
-                        let val = ((pos.y - square_rect.top()) / side).clamp(0.0, 1.0);
-                        let active = self.color_mut(self.active);
-                        active.sat = sat;
-                        active.val = val;
-                        self.mark_dirty(self.active);
-                    }
+        // Drag or click with a zone under the pointer.
+        if (response.dragged() || response.clicked())
+            && let (Some(zone), Some(pos)) = (self.drag_zone, response.interact_pointer_pos())
+        {
+            match zone {
+                WheelZone::Ring => {
+                    let dx = pos.x - center.x;
+                    let dy = center.y - pos.y;
+                    let hue = dy.atan2(dx).rem_euclid(TAU) / TAU;
+                    self.set_active_hue(hue);
+                }
+                WheelZone::Square => {
+                    let sat = ((pos.x - square_rect.left()) / side).clamp(0.0, 1.0);
+                    let val = ((pos.y - square_rect.top()) / side).clamp(0.0, 1.0);
+                    let active = self.color_mut(self.active);
+                    active.sat = sat;
+                    active.val = val;
+                    self.mark_dirty(self.active);
                 }
             }
         }
@@ -932,9 +924,5 @@ fn rgb_to_hsv(rgb: Rgb) -> (f32, f32, f32) {
         (r - g) / delta + 4.0
     };
 
-    (
-        hue / 6.0,
-        if max == 0.0 { 0.0 } else { delta / max },
-        max,
-    )
+    (hue / 6.0, if max == 0.0 { 0.0 } else { delta / max }, max)
 }

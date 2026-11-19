@@ -3,7 +3,7 @@
 
 use std::time::Duration;
 
-use razer_battery::devices::{custom_device, RazerDevice};
+use razer_battery::devices::{RazerDevice, custom_device};
 use razer_battery::{BatterySession, RazerError};
 
 pub const USAGE_PAGE: u16 = 0x0001; // generic desktop
@@ -54,13 +54,20 @@ pub fn label(row: &Row) -> String {
 pub fn measure(dev: &RazerDevice) -> Row {
     let reading = match BatterySession::new(dev) {
         Ok(sess) => match sess.query() {
-            Ok(info) => Reading::Info { level: info.level, charging: info.charging },
+            Ok(info) => Reading::Info {
+                level: info.level,
+                charging: info.charging,
+            },
             Err(e) => Reading::Failed(e.to_string()),
         },
         Err(RazerError::DeviceNotFound { .. }) => Reading::NotPresent,
         Err(e) => Reading::Failed(e.to_string()),
     };
-    Row { name: dev.name.to_string(), pid: dev.pid, reading }
+    Row {
+        name: dev.name.to_string(),
+        pid: dev.pid,
+        reading,
+    }
 }
 
 /// Scan all candidate devices.
@@ -104,7 +111,11 @@ pub fn next_wait(rows: &[Row], fixed: Option<Duration>) -> Duration {
         }
     }
     next.unwrap_or(Duration::from_secs(
-        if rows.iter().any(|r| matches!(r.reading, Reading::Failed(_))) { 120 } else { 60 },
+        if rows.iter().any(|r| matches!(r.reading, Reading::Failed(_))) {
+            120
+        } else {
+            60
+        },
     ))
 }
 
@@ -118,6 +129,8 @@ pub fn display_row(rows: &[Row]) -> Option<&Row> {
     if infos.is_empty() {
         return None;
     }
-    let charging = infos.iter().find(|r| matches!(r.reading, Reading::Info { charging: true, .. }));
+    let charging = infos
+        .iter()
+        .find(|r| matches!(r.reading, Reading::Info { charging: true, .. }));
     Some(charging.copied().unwrap_or(infos[0]))
 }

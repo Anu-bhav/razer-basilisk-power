@@ -88,7 +88,9 @@ mod tests {
 
     #[test]
     fn only_hardware_simulations_get_an_isolated_data_dir() {
-        assert!(parse(&["--simulate-battery", "23"]).unwrap().uses_simulation_data());
+        assert!(parse(&["--simulate-battery", "23"])
+            .unwrap()
+            .uses_simulation_data());
         assert!(parse(&["--simulate-game"]).unwrap().uses_simulation_data());
         assert!(!parse(&["--fast-reminders"]).unwrap().uses_simulation_data());
         assert!(!parse(&["--digits"]).unwrap().uses_simulation_data());
@@ -105,7 +107,11 @@ mod tests {
     #[test]
     fn parses_autostart_flags() {
         assert!(parse(&["--install-autostart"]).unwrap().install_autostart);
-        assert!(parse(&["--uninstall-autostart"]).unwrap().uninstall_autostart);
+        assert!(
+            parse(&["--uninstall-autostart"])
+                .unwrap()
+                .uninstall_autostart
+        );
         assert!(!parse(&[]).unwrap().install_autostart);
     }
 

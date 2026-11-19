@@ -34,15 +34,15 @@
 //! Input Monitoring → add Terminal / iTerm2 / your IDE). Without this, all HID
 //! device opens will fail with "not permitted".
 
-pub mod error;
 pub mod devices;
+pub mod error;
 pub mod lighting;
 pub mod protocol;
 
 use hidapi::HidApi;
 use log::debug;
 
-pub use devices::{RazerDevice, KNOWN_DEVICES, RAZER_VID};
+pub use devices::{KNOWN_DEVICES, RAZER_VID, RazerDevice};
 pub use error::RazerError;
 
 /// Battery information.
@@ -86,7 +86,10 @@ fn open_device(api: &HidApi, dev: &RazerDevice) -> error::Result<hidapi::HidDevi
             && info.usage_page() == dev.usage_page
             && info.usage() == dev.usage
         {
-            debug!("Matched {} by full descriptor (iface={})", dev.name, dev.interface);
+            debug!(
+                "Matched {} by full descriptor (iface={})",
+                dev.name, dev.interface
+            );
             return Ok(info.open_device(api)?);
         }
     }
@@ -121,17 +124,25 @@ fn open_device(api: &HidApi, dev: &RazerDevice) -> error::Result<hidapi::HidDevi
                 if pass {
                     debug!(
                         "Matched {} by VID/PID/usage (iface={} instead of {})",
-                        dev.name, info.interface_number(), dev.interface
+                        dev.name,
+                        info.interface_number(),
+                        dev.interface
                     );
                 } else {
-                    debug!("Matched {} by VID/PID/interface (iface={})", dev.name, dev.interface);
+                    debug!(
+                        "Matched {} by VID/PID/interface (iface={})",
+                        dev.name, dev.interface
+                    );
                 }
                 return Ok(info.open_device(api)?);
             }
         }
     }
 
-    Err(RazerError::DeviceNotFound { vid: RAZER_VID, pid: dev.pid })
+    Err(RazerError::DeviceNotFound {
+        vid: RAZER_VID,
+        pid: dev.pid,
+    })
 }
 
 /// Scan USB and return all known Razer wireless devices currently connected.
@@ -139,9 +150,9 @@ pub fn find_devices() -> error::Result<Vec<RazerDevice>> {
     let api = HidApi::new()?;
     let mut found = Vec::new();
     for known in KNOWN_DEVICES {
-        let seen = api.device_list().any(|i| {
-            i.vendor_id() == RAZER_VID && i.product_id() == known.pid
-        });
+        let seen = api
+            .device_list()
+            .any(|i| i.vendor_id() == RAZER_VID && i.product_id() == known.pid);
         if seen {
             found.push(known.clone());
         }
@@ -198,7 +209,11 @@ impl BatterySession {
         let api = HidApi::new()?;
         let hid = open_device(&api, dev)?;
         hid.set_blocking_mode(true)?;
-        Ok(Self { api, dev: dev.clone(), hid })
+        Ok(Self {
+            api,
+            dev: dev.clone(),
+            hid,
+        })
     }
 
     /// Re-enumerate USB and open the device again (after reconnect/errors).

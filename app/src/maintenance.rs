@@ -60,11 +60,7 @@ fn trim_to_size(path: &Path, max_bytes: u64, keep_header: bool) {
         return;
     };
 
-    let keep = if keep_header {
-        KEEP_HISTORY_ROWS
-    } else {
-        2000
-    };
+    let keep = if keep_header { KEEP_HISTORY_ROWS } else { 2000 };
 
     let mut lines: Vec<&str> = text.lines().collect();
     if lines.len() > keep {

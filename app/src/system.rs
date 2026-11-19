@@ -106,8 +106,7 @@ pub fn register_app_id(app_id: &str, display_name: &str, icon: &Path) -> Result<
 
 /// Selected once by `use_simulation_data_dir()` so every writer (log, feed,
 /// history, LED colours, maintenance) follows the simulated run.
-static DATA_DIR_OVERRIDE: std::sync::OnceLock<std::path::PathBuf> =
-    std::sync::OnceLock::new();
+static DATA_DIR_OVERRIDE: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
 
 /// Point `data_dir()` at `%LOCALAPPDATA%\BasiliskPower\sim`.
 ///
@@ -118,8 +117,7 @@ pub fn use_simulation_data_dir() -> Result<(), String> {
     let dir = std::path::PathBuf::from(root)
         .join("BasiliskPower")
         .join("sim");
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
     DATA_DIR_OVERRIDE
         .set(dir)
         .map_err(|_| "the data directory is already selected".to_string())
@@ -268,7 +266,6 @@ pub fn show_error(text: &str) {
     eprintln!("{text}");
 }
 
-
 /// Registry location used for "start with Windows". The Run key starts the
 /// exe at login without a shortcut and without a console flash.
 #[cfg(windows)]
@@ -299,10 +296,12 @@ pub enum AutostartState {
 pub fn autostart_target() -> Option<String> {
     #[cfg(windows)]
     {
-        let output = hidden(
-            std::process::Command::new("reg")
-                .args(["query", AUTOSTART_KEY, "/v", AUTOSTART_NAME]),
-        )
+        let output = hidden(std::process::Command::new("reg").args([
+            "query",
+            AUTOSTART_KEY,
+            "/v",
+            AUTOSTART_NAME,
+        ]))
         .output()
         .ok()?;
         if !output.status.success() {
@@ -344,7 +343,12 @@ fn autostart_state_from(stored: Option<&str>, current: Option<&str>) -> Autostar
     match stored {
         None => AutostartState::Disabled,
         Some(stored) => match current {
-            Some(current) if stored.trim().trim_matches('"').eq_ignore_ascii_case(current) => {
+            Some(current)
+                if stored
+                    .trim()
+                    .trim_matches('"')
+                    .eq_ignore_ascii_case(current) =>
+            {
                 AutostartState::Enabled
             }
             _ => AutostartState::Stale,
@@ -361,23 +365,21 @@ pub fn autostart_enabled() -> bool {
 pub fn set_autostart(enabled: bool) -> Result<(), String> {
     #[cfg(windows)]
     {
-        let exe = std::env::current_exe()
-            .map_err(|e| format!("cannot find the tray executable: {e}"))?;
+        let exe =
+            std::env::current_exe().map_err(|e| format!("cannot find the tray executable: {e}"))?;
         if enabled {
             let value = format!("\"{}\"", exe.display());
-            let status = hidden(
-                std::process::Command::new("reg").args([
-                    "add",
-                    AUTOSTART_KEY,
-                    "/v",
-                    AUTOSTART_NAME,
-                    "/t",
-                    "REG_SZ",
-                    "/d",
-                    &value,
-                    "/f",
-                ]),
-            )
+            let status = hidden(std::process::Command::new("reg").args([
+                "add",
+                AUTOSTART_KEY,
+                "/v",
+                AUTOSTART_NAME,
+                "/t",
+                "REG_SZ",
+                "/d",
+                &value,
+                "/f",
+            ]))
             .output()
             .map_err(|e| format!("cannot run reg.exe: {e}"))?;
             if status.status.success() {
@@ -387,10 +389,13 @@ pub fn set_autostart(enabled: bool) -> Result<(), String> {
             }
         } else {
             // Deleting a value that is not there is not an error for us.
-            let _ = hidden(
-                std::process::Command::new("reg")
-                    .args(["delete", AUTOSTART_KEY, "/v", AUTOSTART_NAME, "/f"]),
-            )
+            let _ = hidden(std::process::Command::new("reg").args([
+                "delete",
+                AUTOSTART_KEY,
+                "/v",
+                AUTOSTART_NAME,
+                "/f",
+            ]))
             .output();
             if autostart_target().is_some() {
                 Err("the startup entry is still present".to_string())
@@ -431,7 +436,7 @@ pub fn open_path(path: &Path) -> Result<(), String> {
             file.as_ptr(),
             ptr::null(),
             ptr::null(),
-            SW_SHOWNORMAL as i32,
+            SW_SHOWNORMAL,
         )
     };
     if res as isize > 32 {
@@ -502,9 +507,6 @@ mod tests {
             autostart_state_from(Some(&format!("\"{EXE}\" --fast-reminders")), Some(EXE)),
             AutostartState::Stale
         );
-        assert_eq!(
-            autostart_state_from(Some(old), None),
-            AutostartState::Stale
-        );
+        assert_eq!(autostart_state_from(Some(old), None), AutostartState::Stale);
     }
 }

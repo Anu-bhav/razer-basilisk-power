@@ -103,7 +103,10 @@ fn set_static(controller: &DeviceController, tid: u8, rgb: Rgb) -> Result<(), St
     request.arguments[6] = r;
     request.arguments[7] = g;
     request.arguments[8] = b;
-    controller.send_payload(request).map(|_| ()).map_err(|e| e.to_string())
+    controller
+        .send_payload(request)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 /// Read the static colour back; `None` when the device reports no static one.
@@ -134,7 +137,10 @@ fn get_static(controller: &DeviceController, tid: u8) -> Option<Rgb> {
 fn dock_normal_mode(controller: &DeviceController) -> Result<(), String> {
     let mut request = controller.create_command(CMD_CLASS_DEVICE, CMD_SET_DEVICE_MODE, 0x02);
     request.transaction_id = TID_DOCK;
-    controller.send_payload(request).map(|_| ()).map_err(|e| e.to_string())
+    controller
+        .send_payload(request)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 fn set_dock(controller: &DeviceController, rgb: Rgb) -> Result<(), String> {
@@ -155,7 +161,11 @@ fn set_dock(controller: &DeviceController, rgb: Rgb) -> Result<(), String> {
 }
 
 /// Write one colour once, then read it back.
-fn write_once(controller: &DeviceController, target: Target, rgb: Rgb) -> Result<Option<Rgb>, String> {
+fn write_once(
+    controller: &DeviceController,
+    target: Target,
+    rgb: Rgb,
+) -> Result<Option<Rgb>, String> {
     match target {
         Target::Mouse => {
             set_static(controller, TID_MOUSE, rgb)?;

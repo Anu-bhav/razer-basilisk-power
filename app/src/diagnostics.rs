@@ -26,8 +26,7 @@ pub fn write_bundle() -> Result<PathBuf, String> {
     };
     let report = build_report(&dir);
     let path = dir.join(format!("diagnostics-{date}-{seconds}.txt"));
-    std::fs::write(&path, report)
-        .map_err(|e| format!("cannot write {}: {e}", path.display()))?;
+    std::fs::write(&path, report).map_err(|e| format!("cannot write {}: {e}", path.display()))?;
     Ok(path)
 }
 
@@ -46,7 +45,12 @@ fn build_report(dir: &Path) -> String {
             .map(|p| p.display().to_string())
             .unwrap_or_else(|e| format!("(unknown: {e})"))
     );
-    let _ = writeln!(out, "platform:  {} {}", std::env::consts::OS, std::env::consts::ARCH);
+    let _ = writeln!(
+        out,
+        "platform:  {} {}",
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    );
     if let Some(ver) = windows_version() {
         let _ = writeln!(out, "windows:   {ver}");
     }
@@ -55,16 +59,23 @@ fn build_report(dir: &Path) -> String {
         crate::system::AutostartState::Disabled => "disabled".to_string(),
         crate::system::AutostartState::Stale => format!(
             "stale (points at {})",
-            crate::system::autostart_target()
-                .unwrap_or_else(|| "another path".to_string())
+            crate::system::autostart_target().unwrap_or_else(|| "another path".to_string())
         ),
     };
     let _ = writeln!(out, "autostart: {autostart}");
     let _ = writeln!(out, "data dir:  {}", dir.display());
     let _ = writeln!(out);
 
-    section(&mut out, "status.json", &read_text(&dir.join("status.json")));
-    section(&mut out, "led-colors.txt", &read_text(&dir.join("led-colors.txt")));
+    section(
+        &mut out,
+        "status.json",
+        &read_text(&dir.join("status.json")),
+    );
+    section(
+        &mut out,
+        "led-colors.txt",
+        &read_text(&dir.join("led-colors.txt")),
+    );
 
     let _ = writeln!(out, "--- files ---");
     for name in [
@@ -261,9 +272,7 @@ fn rainmeter_state() -> &'static str {
             .creation_flags(CREATE_NO_WINDOW)
             .output()
         {
-            Ok(out) if String::from_utf8_lossy(&out.stdout).contains("Rainmeter.exe") => {
-                "running"
-            }
+            Ok(out) if String::from_utf8_lossy(&out.stdout).contains("Rainmeter.exe") => "running",
             Ok(_) => "not running",
             Err(_) => "unknown (tasklist failed)",
         }
@@ -349,10 +358,8 @@ mod tests {
 
     #[test]
     fn read_tail_drops_the_partial_first_line() {
-        let path = std::env::temp_dir().join(format!(
-            "basilisk-diag-test-{}.txt",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("basilisk-diag-test-{}.txt", std::process::id()));
         std::fs::write(&path, "first line\nsecond line\nthird line\n").unwrap();
         let tail = read_tail(&path, 24).unwrap();
         let _ = std::fs::remove_file(&path);
@@ -363,10 +370,7 @@ mod tests {
 
     #[test]
     fn bundle_reports_core_state() {
-        let dir = std::env::temp_dir().join(format!(
-            "basilisk-diag-bundle-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("basilisk-diag-bundle-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("status.json"), r#"{"level":42}"#).unwrap();
         std::fs::write(dir.join("led-colors.txt"), "mouse=160054\n").unwrap();

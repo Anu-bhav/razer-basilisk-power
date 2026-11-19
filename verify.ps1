@@ -110,6 +110,18 @@ if (-not $SkipBuild) {
     Check "cli + picker build" ($LASTEXITCODE -eq 0)
 }
 
+Write-Host "`n=== Style (fmt + clippy) ===" -ForegroundColor Cyan
+# Both workspaces must stay rustfmt-clean and clippy-warning-free; these were
+# added after the 2026-11 audit (F11) so the gate catches drift immediately.
+wsl -d Ubuntu -- bash -c "cd '$WslRepo' && cargo fmt --check"
+Check "root fmt --check" ($LASTEXITCODE -eq 0)
+wsl -d Ubuntu -- bash -c "cd '$WslRepo' && cargo clippy --release --target x86_64-pc-windows-gnu --quiet 2>&1 | tail -20"
+Check "root clippy" ($LASTEXITCODE -eq 0)
+wsl -d Ubuntu -- bash -c "cd '$WslRepo/app' && cargo fmt --check"
+Check "tray fmt --check" ($LASTEXITCODE -eq 0)
+wsl -d Ubuntu -- bash -c "cd '$WslRepo/app' && cargo clippy --release --target x86_64-pc-windows-gnu --quiet 2>&1 | tail -20"
+Check "tray clippy" ($LASTEXITCODE -eq 0)
+
 Write-Host "`n=== Tests ===" -ForegroundColor Cyan
 wsl -d Ubuntu -- bash -c "set -o pipefail; cd '$WslRepo' && cargo test --release 2>&1 | tail -20"
 Check "root workspace tests" ($LASTEXITCODE -eq 0)

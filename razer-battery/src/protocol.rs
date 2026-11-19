@@ -25,10 +25,10 @@
 //! and **input reports** (`hid_read`) to receive responses. The buffer must
 //! be 91 bytes: 1 byte report ID (0x00) + 90 bytes payload.
 
+use crate::error::{RazerError, Result};
+use log::debug;
 use std::thread;
 use std::time::Duration;
-use log::debug;
-use crate::error::{RazerError, Result};
 
 /// Razer report payload length (without report ID).
 pub const REPORT_LEN: usize = 90;
@@ -61,7 +61,12 @@ const MAX_RETRIES: u8 = 5;
 const READ_TIMEOUT_MS: i32 = 1000;
 
 /// Build a 90-byte Razer HID report payload.
-pub fn build_report(transaction_id: u8, cmd_class: u8, cmd_id: u8, data_size: u8) -> [u8; REPORT_LEN] {
+pub fn build_report(
+    transaction_id: u8,
+    cmd_class: u8,
+    cmd_id: u8,
+    data_size: u8,
+) -> [u8; REPORT_LEN] {
     let mut buf = [0u8; REPORT_LEN];
     buf[0] = 0x00; // status: new
     buf[1] = transaction_id;
@@ -82,7 +87,10 @@ pub fn compute_crc(buf: &[u8; REPORT_LEN]) -> u8 {
 pub fn validate_crc(buf: &[u8; REPORT_LEN]) -> Result<()> {
     let expected = compute_crc(buf);
     if expected != buf[88] {
-        return Err(RazerError::CrcMismatch { expected, got: buf[88] });
+        return Err(RazerError::CrcMismatch {
+            expected,
+            got: buf[88],
+        });
     }
     Ok(())
 }
@@ -95,8 +103,13 @@ pub fn send_command(
     report: &[u8; REPORT_LEN],
 ) -> Result<[u8; REPORT_LEN]> {
     for attempt in 0..MAX_RETRIES {
-        debug!("Attempt {}/{}: sending command {:#04x}/{:#04x}",
-            attempt + 1, MAX_RETRIES, report[6], report[7]);
+        debug!(
+            "Attempt {}/{}: sending command {:#04x}/{:#04x}",
+            attempt + 1,
+            MAX_RETRIES,
+            report[6],
+            report[7]
+        );
 
         // Try to send and receive
         let resp = send_and_receive(hid, report)?;
@@ -110,7 +123,10 @@ pub fn send_command(
             // Device busy: legacy firmware reports 0x03, current firmware 0x01
             // (per OpenRazer razercommon.h). Wait and retry.
             STATUS_BUSY | 0x01 => {
-                debug!("Device busy (status {:#04x}), waiting before retry...", resp[0]);
+                debug!(
+                    "Device busy (status {:#04x}), waiting before retry...",
+                    resp[0]
+                );
                 thread::sleep(Duration::from_millis(300));
                 continue;
             }
@@ -131,7 +147,9 @@ pub fn send_command(
             }
         }
     }
-    Err(RazerError::Timeout { attempts: MAX_RETRIES })
+    Err(RazerError::Timeout {
+        attempts: MAX_RETRIES,
+    })
 }
 
 /// Send and receive a command, trying feature reports first and falling back
@@ -210,7 +228,7 @@ fn send_via_write_read(
 
     let mut resp = [0u8; REPORT_LEN];
 
-    if n >= WIRE_LEN as usize {
+    if n >= WIRE_LEN {
         // Got report ID + full payload
         resp.copy_from_slice(&recv_buf[1..WIRE_LEN]);
     } else if n >= REPORT_LEN {
@@ -248,11 +266,11 @@ mod tests {
     #[test]
     fn report_structure() {
         let r = build_report(0x1f, CMD_CLASS_POWER, CMD_GET_BATTERY, 0x02);
-        assert_eq!(r[0], 0x00);  // status
-        assert_eq!(r[1], 0x1f);  // transaction_id
-        assert_eq!(r[5], 0x02);  // data_size
-        assert_eq!(r[6], 0x07);  // command_class
-        assert_eq!(r[7], 0x80);  // command_id
+        assert_eq!(r[0], 0x00); // status
+        assert_eq!(r[1], 0x1f); // transaction_id
+        assert_eq!(r[5], 0x02); // data_size
+        assert_eq!(r[6], 0x07); // command_class
+        assert_eq!(r[7], 0x80); // command_id
         assert_eq!(r[88], compute_crc(&r));
         assert_eq!(r[89], 0x00); // reserved
     }

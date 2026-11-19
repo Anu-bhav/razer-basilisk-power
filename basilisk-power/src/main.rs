@@ -25,7 +25,7 @@ use razer_battery::{BatterySession, RazerError};
 
 mod history;
 
-use common::{label, measure_all, next_wait, Row};
+use common::{Row, label, measure_all, next_wait};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const GIT_HASH: &str = env!("BASILISK_GIT_HASH");
@@ -56,7 +56,11 @@ fn render_line(row: &Row) -> String {
             label(row),
             level,
             bar(*level, 20),
-            if *charging { "charging (docked)" } else { "on battery" },
+            if *charging {
+                "charging (docked)"
+            } else {
+                "on battery"
+            },
         ),
         common::Reading::NotPresent => format!("{ts}  {:<30}  --   not present", label(row)),
         common::Reading::Failed(e) => format!("{ts}  {:<30}  !!   {e}", label(row)),
@@ -91,12 +95,18 @@ fn once(json: bool) {
         println!(r#"{{"devices":[{}]}}"#, items.join(","));
         return;
     }
-    println!("Razer battery scan — {}", Local::now().format("%Y-%m-%d %H:%M:%S"));
+    println!(
+        "Razer battery scan — {}",
+        Local::now().format("%Y-%m-%d %H:%M:%S")
+    );
     println!();
     for row in &rows {
         println!("{}", render_line(row));
     }
-    if rows.iter().all(|r| matches!(r.reading, common::Reading::NotPresent)) {
+    if rows
+        .iter()
+        .all(|r| matches!(r.reading, common::Reading::NotPresent))
+    {
         println!();
         println!("No devices responded. Tips:");
         println!("  - Move the mouse / click a button to wake it from sleep");
@@ -110,7 +120,11 @@ fn watch(fixed: Option<Duration>, json: bool) {
     loop {
         let rows = measure_all();
         for row in &rows {
-            let line = if json { json_line(row) } else { render_line(row) };
+            let line = if json {
+                json_line(row)
+            } else {
+                render_line(row)
+            };
             println!("{line}");
         }
         let _ = std::io::stdout().flush();
@@ -123,19 +137,32 @@ fn probe() {
     let present: Vec<u16> = [0x00AAu16, 0x00AB, 0x00A4]
         .into_iter()
         .filter(|pid| {
-            api.device_list().any(|i| i.vendor_id() == 0x1532 && i.product_id() == *pid)
+            api.device_list()
+                .any(|i| i.vendor_id() == 0x1532 && i.product_id() == *pid)
         })
         .collect();
 
     println!("Probing combo: interface x transaction_id (this can take a while)");
-    println!("Present PIDs: {:?}", present.iter().map(|p| format!("{p:#06x}")).collect::<Vec<_>>());
+    println!(
+        "Present PIDs: {:?}",
+        present
+            .iter()
+            .map(|p| format!("{p:#06x}"))
+            .collect::<Vec<_>>()
+    );
     println!();
 
     for pid in present {
         for iface in [0i32, 1, 2] {
             for tid in [0x1fu8, 0x0f, 0x3f, 0xff] {
-                let dev =
-                    custom_device("probe", pid, iface, common::USAGE_PAGE, common::USAGE_MOUSE, tid);
+                let dev = custom_device(
+                    "probe",
+                    pid,
+                    iface,
+                    common::USAGE_PAGE,
+                    common::USAGE_MOUSE,
+                    tid,
+                );
                 print!("  {pid:#06x} iface {iface} tid {tid:#04x}  ...  ");
                 let _ = std::io::stdout().flush();
                 match BatterySession::new(&dev) {
@@ -216,7 +243,10 @@ fn apply_requests(requests: &[lighting::ColorRequest], brightness: Option<u8>) {
         if landed {
             println!("{}: verified", request.target.label());
         } else {
-            eprintln!("{}: warning - read-back did not match", request.target.label());
+            eprintln!(
+                "{}: warning - read-back did not match",
+                request.target.label()
+            );
         }
     }
 
@@ -273,11 +303,9 @@ fn print_colors(target: &str) {
                         hex(rgb)
                     ),
                     None => match &reading.error {
-                        Some(error) => eprintln!(
-                            "{} ({}): {error}",
-                            reading.target.label(),
-                            reading.device
-                        ),
+                        Some(error) => {
+                            eprintln!("{} ({}): {error}", reading.target.label(), reading.device)
+                        }
                         None => println!(
                             "{} ({}) -> no stored static colour ({effect})",
                             reading.target.label(),
@@ -311,9 +339,7 @@ fn watch_led() {
                         rgb.2,
                         r.effect.unwrap_or(0)
                     ),
-                    None => r
-                        .error
-                        .unwrap_or_else(|| "no static colour".to_string()),
+                    None => r.error.unwrap_or_else(|| "no static colour".to_string()),
                 })
                 .unwrap_or_else(|| "no answer".to_string());
             line.push_str(&format!("  |  {}: {state}", target.key()));
@@ -391,30 +417,26 @@ fn main() {
                     std::process::exit(2);
                 }
             },
-            "--mouse-color" => {
-                match it.next().as_deref().and_then(lighting::parse_hex_color) {
-                    Some(rgb) => {
-                        mouse_color = Some(rgb);
-                        mode = Mode::SetColor;
-                    }
-                    None => {
-                        eprintln!("--mouse-color needs a hex colour such as 00CCFF");
-                        std::process::exit(2);
-                    }
+            "--mouse-color" => match it.next().as_deref().and_then(lighting::parse_hex_color) {
+                Some(rgb) => {
+                    mouse_color = Some(rgb);
+                    mode = Mode::SetColor;
                 }
-            }
-            "--dock-color" => {
-                match it.next().as_deref().and_then(lighting::parse_hex_color) {
-                    Some(rgb) => {
-                        dock_color = Some(rgb);
-                        mode = Mode::SetColor;
-                    }
-                    None => {
-                        eprintln!("--dock-color needs a hex colour such as FF2BFF");
-                        std::process::exit(2);
-                    }
+                None => {
+                    eprintln!("--mouse-color needs a hex colour such as 00CCFF");
+                    std::process::exit(2);
                 }
-            }
+            },
+            "--dock-color" => match it.next().as_deref().and_then(lighting::parse_hex_color) {
+                Some(rgb) => {
+                    dock_color = Some(rgb);
+                    mode = Mode::SetColor;
+                }
+                None => {
+                    eprintln!("--dock-color needs a hex colour such as FF2BFF");
+                    std::process::exit(2);
+                }
+            },
             "--get-color" => mode = Mode::GetColor,
             "--watch-led" => mode = Mode::WatchLed,
             "--history" => {

@@ -270,7 +270,10 @@ pub fn open(api: &HidApi, pid: u16) -> Result<HidDevice> {
         return Ok(info.open_device(api)?);
     }
 
-    Err(RazerError::DeviceNotFound { vid: RAZER_VID, pid })
+    Err(RazerError::DeviceNotFound {
+        vid: RAZER_VID,
+        pid,
+    })
 }
 
 /// Recompute the CRC after the argument bytes have been written.
@@ -282,17 +285,7 @@ fn static_effect(hid: &HidDevice, tid: u8, rgb: Rgb) -> Result<()> {
     let (r, g, b) = rgb;
     let mut report = build_report(tid, CMD_CLASS_LED, CMD_SET_EFFECT, 0x09);
     // OpenRazer layout: varstore, led, effect, 0, 0, 0x01, R, G, B
-    report[8..17].copy_from_slice(&[
-        VARSTORE,
-        ZERO_LED,
-        EFFECT_STATIC,
-        0,
-        0,
-        0x01,
-        r,
-        g,
-        b,
-    ]);
+    report[8..17].copy_from_slice(&[VARSTORE, ZERO_LED, EFFECT_STATIC, 0, 0, 0x01, r, g, b]);
     finish(&mut report);
     send_command(hid, &report)?;
     Ok(())
@@ -676,10 +669,7 @@ fn apply_inner(
         match open(&api, pid) {
             Ok(hid) => {
                 let (label, result) = match request.target {
-                    Target::Mouse => (
-                        "static colour",
-                        set_mouse_color(&hid, request.rgb),
-                    ),
+                    Target::Mouse => ("static colour", set_mouse_color(&hid, request.rgb)),
                     Target::Dock => (
                         "static colour + mode switch",
                         set_dock_color(&hid, request.rgb),
