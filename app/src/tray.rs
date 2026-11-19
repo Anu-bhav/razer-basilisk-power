@@ -22,7 +22,7 @@ use crate::{
     system,
     wake::{Activity, WakeRetry},
 };
-use log::{error, info, trace, warn};
+use log::{debug, error, info, trace, warn};
 use parking_lot::Mutex;
 use tao::event_loop::{EventLoopBuilder, EventLoopProxy};
 use tray_icon::{
@@ -40,6 +40,9 @@ const HOVER_REFRESH_INTERVAL: Duration = Duration::from_secs(10);
 /// Input idle at which the mouse was likely just docked (or parked):
 /// probe immediately instead of waiting for the next scheduled poll.
 const DOCK_DETECT_IDLE: Duration = Duration::from_secs(8);
+/// The dock relay can alternate its charging flag on consecutive samples.
+/// Publish a transition only after this many reads agree.
+const CHARGING_CONFIRM_READS: u8 = 2;
 /// Window of level samples used for the time-to-full estimate.
 const CHARGE_HISTORY_WINDOW: Duration = Duration::from_secs(45 * 60);
 
@@ -148,6 +151,12 @@ pub struct MemoryDevice {
     /// Dock Pro this is the relayed flag from the paired mouse, which is
     /// reliable: it reads 1 on the dock and 0 the moment the mouse is lifted.
     reported_charging: bool,
+    /// At least one successful charging read has been seen.
+    charging_known: bool,
+    /// A new raw state waiting for a confirming read (state, count).
+    charging_candidate: Option<(bool, u8)>,
+    /// Consecutive reads where the charging flag could not be read.
+    charging_failures: u8,
     /// Recent (time, level) samples while charging, for the time-to-full
     /// estimate.
     charge_history: Vec<(Instant, i32)>,
@@ -173,11 +182,92 @@ impl MemoryDevice {
             reminder: Reminder::default(),
             retry: WakeRetry::default(),
             reported_charging: false,
+            charging_known: false,
+            charging_candidate: None,
+            charging_failures: 0,
             charge_history: Vec::new(),
             eta_full_min: None,
             discharge_history: Vec::new(),
             eta_empty_min: None,
         }
+    }
+
+    /// Apply one raw charging reading. `None` means the read failed.
+    /// Returns true when the published `is_charging` value changed.
+    fn apply_charging_reading(&mut self, reading: Option<bool>) -> bool {
+        match reading {
+            Some(reported) => {
+                self.charging_failures = 0;
+                self.reported_charging = reported;
+
+                if !self.charging_known {
+                    self.charging_known = true;
+                    self.charging_candidate = None;
+                    if self.is_charging != reported {
+                        self.is_charging = reported;
+                        self.on_charging_changed();
+                        return true;
+                    }
+                    return false;
+                }
+
+                if reported == self.is_charging {
+                    self.charging_candidate = None;
+                    return false;
+                }
+
+                match self.charging_candidate {
+                    Some((candidate, count)) if candidate == reported => {
+                        let count = count.saturating_add(1);
+                        if count >= CHARGING_CONFIRM_READS {
+                            self.charging_candidate = None;
+                            self.is_charging = reported;
+                            self.on_charging_changed();
+                            true
+                        } else {
+                            self.charging_candidate = Some((reported, count));
+                            false
+                        }
+                    }
+                    _ => {
+                        self.charging_candidate = Some((reported, 1));
+                        false
+                    }
+                }
+            }
+            None => {
+                self.charging_failures = self.charging_failures.saturating_add(1);
+                self.charging_candidate = None;
+                if self.charging_failures >= CHARGING_CONFIRM_READS && self.is_charging {
+                    self.is_charging = false;
+                    self.reported_charging = false;
+                    self.on_charging_changed();
+                    true
+                } else {
+                    false
+                }
+            }
+        }
+    }
+
+    /// Drop estimates that belonged to the charging state we just left.
+    fn on_charging_changed(&mut self) {
+        if self.is_charging {
+            self.discharge_history.clear();
+            self.eta_empty_min = None;
+        } else {
+            self.charge_history.clear();
+            self.eta_full_min = None;
+            // Make the tooltip useful immediately after undocking; the next
+            // full read replaces this with a measured slope.
+            self.eta_empty_min = self.battery_level.and_then(fallback_discharge_eta);
+        }
+    }
+
+    /// True while a fast charging-only probe can still teach us something.
+    fn wants_charge_probe(&self) -> bool {
+        (self.is_charging || self.charging_candidate.is_some())
+            && self.charging_failures < CHARGING_CONFIRM_READS
     }
 }
 
@@ -950,26 +1040,40 @@ fn read_battery(
     // set, was never cleared -- that is what made the tray and widget keep
     // showing "charging" long after the mouse was off. A failed read must not
     // freeze the old value either, so it clears the state instead.
+    let previous_reported = device.reported_charging;
+    let charging_changed = device.apply_charging_reading(trusted_charging);
     match trusted_charging {
         Some(reported) => {
-            if device.reported_charging != reported || device.is_charging != reported {
+            if previous_reported != reported {
                 info!(
-                    "{}: charging={} (flag changed)",
-                    device.name, reported
+                    "{}: charging flag {} (raw)",
+                    device.name,
+                    if reported { 1 } else { 0 }
                 );
             }
-            device.reported_charging = reported;
-            device.is_charging = reported;
         }
         None => {
-            // No answer this round (mouse asleep, RF busy). Do not invent a
-            // state: drop to not-charging rather than showing a stale "1".
-            if device.is_charging {
-                info!("{}: charging flag unavailable, clearing charging state", device.name);
-                device.is_charging = false;
-                device.reported_charging = false;
-            }
+            // A failed read is not a state. Keep the last one until the
+            // failure repeats, so one busy relay reply does not make the
+            // widget flicker to wireless.
+            debug!(
+                "{}: charging flag unavailable ({} consecutive)",
+                device.name, device.charging_failures
+            );
         }
+    }
+    if charging_changed {
+        info!(
+            "{}: charging state {} (confirmed)",
+            device.name,
+            if device.is_charging {
+                "started"
+            } else {
+                "stopped"
+            }
+        );
+    } else if trusted_charging.is_some() && device.charging_candidate.is_some() {
+        debug!("{}: charging change waiting for confirmation", device.name);
     }
 
     // Time-to-full estimate from the recent level slope while charging.
@@ -1186,5 +1290,57 @@ mod tests {
         let line = tooltip_line(&device);
         assert!(line.contains('⚡'), "line was {line}");
         assert!(line.contains("40 min"), "line was {line}");
+    }
+
+    #[test]
+    fn charging_transition_needs_two_reads() {
+        let mut device = MemoryDevice::new("Mouse".to_string());
+        assert!(device.apply_charging_reading(Some(true)));
+        assert!(device.is_charging);
+
+        assert!(!device.apply_charging_reading(Some(false)));
+        assert!(device.is_charging);
+
+        assert!(device.apply_charging_reading(Some(false)));
+        assert!(!device.is_charging);
+    }
+
+    #[test]
+    fn charging_flap_is_ignored() {
+        let mut device = MemoryDevice::new("Mouse".to_string());
+        assert!(device.apply_charging_reading(Some(true)));
+
+        for _ in 0..4 {
+            assert!(!device.apply_charging_reading(Some(false)));
+            assert!(!device.apply_charging_reading(Some(true)));
+            assert!(device.is_charging);
+        }
+    }
+
+    #[test]
+    fn failed_charging_reads_clear_only_after_confirmation() {
+        let mut device = MemoryDevice::new("Mouse".to_string());
+        assert!(device.apply_charging_reading(Some(true)));
+
+        assert!(!device.apply_charging_reading(None));
+        assert!(device.is_charging);
+
+        assert!(device.apply_charging_reading(None));
+        assert!(!device.is_charging);
+    }
+
+    #[test]
+    fn undock_clears_charging_eta_immediately() {
+        let mut device = MemoryDevice::new("Mouse".to_string());
+        device.battery_level = Some(75);
+        assert!(device.apply_charging_reading(Some(true)));
+        device.eta_full_min = Some(25);
+
+        assert!(!device.apply_charging_reading(Some(false)));
+        assert!(device.apply_charging_reading(Some(false)));
+
+        assert!(!device.is_charging);
+        assert_eq!(device.eta_full_min, None);
+        assert!(device.eta_empty_min.is_some());
     }
 }
