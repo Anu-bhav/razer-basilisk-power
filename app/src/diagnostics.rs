@@ -50,11 +50,16 @@ fn build_report(dir: &Path) -> String {
     if let Some(ver) = windows_version() {
         let _ = writeln!(out, "windows:   {ver}");
     }
-    let _ = writeln!(
-        out,
-        "autostart: {}",
-        if crate::system::autostart_enabled() { "enabled" } else { "disabled" }
-    );
+    let autostart = match crate::system::autostart_state() {
+        crate::system::AutostartState::Enabled => "enabled".to_string(),
+        crate::system::AutostartState::Disabled => "disabled".to_string(),
+        crate::system::AutostartState::Stale => format!(
+            "stale (points at {})",
+            crate::system::autostart_target()
+                .unwrap_or_else(|| "another path".to_string())
+        ),
+    };
+    let _ = writeln!(out, "autostart: {autostart}");
     let _ = writeln!(out, "data dir:  {}", dir.display());
     let _ = writeln!(out);
 

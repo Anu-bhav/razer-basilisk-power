@@ -284,21 +284,77 @@ fn hidden(command: &mut std::process::Command) -> &mut std::process::Command {
     command.creation_flags(CREATE_NO_WINDOW)
 }
 
-/// Is the tray registered to start with Windows?
-pub fn autostart_enabled() -> bool {
+/// How the Run-key entry relates to the executable that is running now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AutostartState {
+    /// No Run value.
+    Disabled,
+    /// The Run value points at this executable.
+    Enabled,
+    /// A Run value exists but points somewhere else (moved or rebuilt app).
+    Stale,
+}
+
+/// Read the Run value without modifying it. `None` when it is missing.
+pub fn autostart_target() -> Option<String> {
     #[cfg(windows)]
     {
         let output = hidden(
             std::process::Command::new("reg")
                 .args(["query", AUTOSTART_KEY, "/v", AUTOSTART_NAME]),
         )
-        .output();
-        output.map(|o| o.status.success()).unwrap_or(false)
+        .output()
+        .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let text = String::from_utf8_lossy(&output.stdout);
+        for line in text.lines() {
+            if !line.contains(AUTOSTART_NAME) {
+                continue;
+            }
+            let Some(pos) = line.find("REG_SZ") else {
+                continue;
+            };
+            let value = line[pos + "REG_SZ".len()..]
+                .trim()
+                .trim_matches('"')
+                .to_string();
+            if !value.is_empty() {
+                return Some(value);
+            }
+        }
+        None
     }
     #[cfg(not(windows))]
     {
-        false
+        None
     }
+}
+
+/// Classify the Run value against the current executable.
+pub fn autostart_state() -> AutostartState {
+    let current = std::env::current_exe()
+        .ok()
+        .map(|p| p.to_string_lossy().into_owned());
+    autostart_state_from(autostart_target().as_deref(), current.as_deref())
+}
+
+fn autostart_state_from(stored: Option<&str>, current: Option<&str>) -> AutostartState {
+    match stored {
+        None => AutostartState::Disabled,
+        Some(stored) => match current {
+            Some(current) if stored.trim().trim_matches('"').eq_ignore_ascii_case(current) => {
+                AutostartState::Enabled
+            }
+            _ => AutostartState::Stale,
+        },
+    }
+}
+
+/// Is the tray registered to start with Windows, pointing at this exe?
+pub fn autostart_enabled() -> bool {
+    autostart_state() == AutostartState::Enabled
 }
 
 /// Add or remove the Run-key entry that starts this exe at login.
@@ -336,7 +392,7 @@ pub fn set_autostart(enabled: bool) -> Result<(), String> {
                     .args(["delete", AUTOSTART_KEY, "/v", AUTOSTART_NAME, "/f"]),
             )
             .output();
-            if autostart_enabled() {
+            if autostart_target().is_some() {
                 Err("the startup entry is still present".to_string())
             } else {
                 Ok(())
@@ -399,4 +455,56 @@ pub fn acquire_single_instance_lock() -> bool {
         return true;
     }
     unsafe { winapi::um::errhandlingapi::GetLastError() != ERROR_ALREADY_EXISTS }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const EXE: &str = r"C:\Users\User\AppData\Local\BasiliskPower\basilisk-power.exe";
+
+    #[test]
+    fn autostart_without_a_value_is_disabled() {
+        assert_eq!(
+            autostart_state_from(None, Some(EXE)),
+            AutostartState::Disabled
+        );
+    }
+
+    #[test]
+    fn autostart_pointing_at_this_exe_is_enabled() {
+        assert_eq!(
+            autostart_state_from(Some(&format!("\"{EXE}\"")), Some(EXE)),
+            AutostartState::Enabled
+        );
+        // Case-insensitive: NTFS is, and reg.exe writes the path as typed.
+        let lower = EXE.to_ascii_lowercase();
+        assert_eq!(
+            autostart_state_from(Some(&lower), Some(EXE)),
+            AutostartState::Enabled
+        );
+        // Unquoted data written by another tool still counts.
+        assert_eq!(
+            autostart_state_from(Some(EXE), Some(EXE)),
+            AutostartState::Enabled
+        );
+    }
+
+    #[test]
+    fn autostart_pointing_elsewhere_is_stale() {
+        let old = r"C:\Users\User\AppData\Local\BasiliskPower\old\basilisk-power.exe";
+        assert_eq!(
+            autostart_state_from(Some(&format!("\"{old}\"")), Some(EXE)),
+            AutostartState::Stale
+        );
+        // With arguments after the quoted path the target no longer matches.
+        assert_eq!(
+            autostart_state_from(Some(&format!("\"{EXE}\" --fast-reminders")), Some(EXE)),
+            AutostartState::Stale
+        );
+        assert_eq!(
+            autostart_state_from(Some(old), None),
+            AutostartState::Stale
+        );
+    }
 }
