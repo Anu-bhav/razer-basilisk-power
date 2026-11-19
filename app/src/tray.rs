@@ -1001,6 +1001,13 @@ impl TrayApp {
     }
 }
 
+/// A 0 % report from the dock relay is an RF link blip, not an empty battery
+/// (a really empty mouse would not answer at all). Simulated runs are the
+/// exception: there, 0 % is a deliberate test input.
+fn zero_is_link_blip(simulated: bool) -> bool {
+    !simulated
+}
+
 fn read_battery(
     manager: &mut DeviceManager,
     id: u32,
@@ -1022,7 +1029,7 @@ fn read_battery(
     let mut trusted_charging = charging;
 
     match level {
-        Some(0) => {
+        Some(0) if zero_is_link_blip(simulated.is_some()) => {
             // A SUCCESS report with 0% (and usually charging=false) shows up
             // on the Mouse Dock Pro relay when the RF link to the mouse
             // blips. A truly empty battery means the mouse is off — it
@@ -1050,7 +1057,9 @@ fn read_battery(
         }
         None => {
             if !device.stale {
-                warn!("{}: no battery reading (asleep?)", device.name);
+                // One line per transition: a mouse that dozed off or went out
+                // of range. The per-poll HID retries themselves stay at debug.
+                info!("{}: no battery reading (asleep?)", device.name);
             }
             device.stale = true;
         }
@@ -1352,6 +1361,12 @@ mod tests {
 
         assert!(device.apply_charging_reading(None));
         assert!(!device.is_charging);
+    }
+
+    #[test]
+    fn zero_percent_is_only_a_blip_on_real_hardware() {
+        assert!(zero_is_link_blip(false));
+        assert!(!zero_is_link_blip(true));
     }
 
     #[test]

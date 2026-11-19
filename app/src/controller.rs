@@ -1,5 +1,5 @@
 use hidapi::{HidApi, HidDevice};
-use log::{info, warn};
+use log::debug;
 use std::ffi::CString;
 use std::thread;
 use std::time::Duration;
@@ -184,7 +184,10 @@ impl DeviceController {
                 || response.command_class != request.command_class
                 || response.command_id != request.command_id
             {
-                warn!(
+                // Routine on the dock relay (stale echo while the RF link is
+                // busy). A command that exhausts its tries still returns Err,
+                // which the manager logs once per read.
+                debug!(
                     "Response doesn't match request (status {:#04x}), retrying",
                     response.status
                 );
@@ -196,8 +199,8 @@ impl DeviceController {
 
             match response.status {
                 RazerReport::STATUS_SUCCESSFUL => return Ok(response),
-                RazerReport::STATUS_BUSY => info!("Device is busy"),
-                RazerReport::STATUS_NO_RESPONSE => info!("Command timed out"),
+                RazerReport::STATUS_BUSY => debug!("Device is busy"),
+                RazerReport::STATUS_NO_RESPONSE => debug!("Command timed out"),
                 RazerReport::STATUS_NOT_SUPPORTED => return Err("Command not supported".into()),
                 RazerReport::STATUS_FAILURE => return Err("Command failed".into()),
                 _ => return Err("Error unknown report status".into()),
@@ -207,7 +210,7 @@ impl DeviceController {
                 break;
             }
             thread::sleep(TIME_BETWEEN_SEND);
-            warn!("Trying to resend command");
+            debug!("Trying to resend command");
         }
 
         Err(format!("Abort command (tries: {max_tries})").into())

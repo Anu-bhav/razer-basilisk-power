@@ -128,7 +128,10 @@ impl DeviceManager {
         match controller.get_battery_level() {
             Ok(level) => Some(level),
             Err(err) => {
-                warn!("Failed to get battery level: {:?}", err);
+                // Routine while the mouse sleeps; the tray logs one line per
+                // stale transition instead. A device that never recovers is
+                // still announced there and by the "Device removed" path.
+                debug!("Failed to get battery level: {:?}", err);
                 self.stale.insert(controller.pid);
                 None
             }
@@ -148,7 +151,7 @@ impl DeviceManager {
         match controller.get_charging_status() {
             Ok(status) => Some(status),
             Err(err) => {
-                warn!("Failed to get charging status: {:?}", err);
+                debug!("Failed to get charging status: {:?}", err);
                 self.stale.insert(controller.pid);
                 None
             }
