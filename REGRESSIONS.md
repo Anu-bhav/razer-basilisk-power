@@ -79,3 +79,7 @@ charging code.
   `--install-autostart` / `--uninstall-autostart` and the tray menu toggle.
   Never write `HKLM`; no admin rights. The value stores an absolute path, so
   re-install after moving the exe. Turning it off must leave no value behind.
+- **A diagnostics bundle must not disturb the running app.** It is handled
+  before the logger is initialized (which truncates the log), includes the
+  version/feed/LED/HID/widget/history state, filters the Rainmeter log to
+  BasiliskPower lines only, and its files are aged out after 7 days.

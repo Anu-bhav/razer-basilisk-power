@@ -8,8 +8,9 @@
     smoke-tests the three things that matter:
 
       * tray + status.json feed (schema, ranges, freshness)
-      * Rainmeter widget in both states (idle blue, charging magenta + ETA +
-        visible fill pulse), then recovery to the real feed
+      * Rainmeter widget states (idle blue, charging magenta + ETA + visible
+        pulse, stale NO SIGNAL, low-battery red), then recovery to the real feed
+      * autostart install/uninstall and the diagnostics bundle
       * LED colour read-back against led-colors.txt
 
     Exits non-zero if anything fails, so a feature cannot be called done while
@@ -161,6 +162,26 @@ Check "autostart uninstall removes the value" ($p.ExitCode -eq 0 -and -not $remo
 # Leave the user's machine exactly as it was before the gate ran.
 if ($prior) {
     New-ItemProperty -Path $runKey -Name $runName -Value $prior -PropertyType String -Force | Out-Null
+}
+
+# ---------------------------------------------------------------- diagnostics
+Write-Host "`n=== Diagnostics ===" -ForegroundColor Cyan
+$diagOut = Join-Path $env:TEMP "basilisk-diagnostics.txt"
+$p = Start-Process $trayExe -ArgumentList "--diagnostics" -Wait -PassThru -RedirectStandardOutput $diagOut
+$diagStdout = Get-Content $diagOut -Raw
+$diagName = [regex]::Match($diagStdout, 'diagnostics-\d{4}-\d{2}-\d{2}-\d{6}\.txt').Value
+Check "diagnostics command succeeds" ($p.ExitCode -eq 0) "exit=$($p.ExitCode)"
+Check "diagnostics names its file" ([bool]$diagName) "stdout=$diagStdout"
+if ($diagName) {
+    $diagPath = Join-Path $Dest $diagName
+    Check "diagnostics file written" (Test-Path $diagPath)
+    if (Test-Path $diagPath) {
+        $diagReport = Get-Content $diagPath -Raw
+        Check "diagnostics has version and feed" ($diagReport -match 'version:' -and $diagReport -match 'status.json')
+        Check "diagnostics has HID and widget state" ($diagReport -match 'HID devices' -and $diagReport -match 'widget \(Rainmeter\)')
+        Check "diagnostics has history and log tails" ($diagReport -match 'battery-history.csv' -and $diagReport -match 'basilisk-power.log')
+        Remove-Item $diagPath -Force
+    }
 }
 
 # ----------------------------------------------------------------- widget test

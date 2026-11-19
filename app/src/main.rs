@@ -4,6 +4,7 @@ mod battery_icon;
 mod controller;
 mod debounce;
 mod devices;
+mod diagnostics;
 mod feed;
 mod led;
 mod maintenance;
@@ -39,6 +40,22 @@ fn main() {
     // truncate the log of a tray that is already running.
     if options.version {
         system::show_version(&format!("basilisk-power {}", version_line()));
+        return;
+    }
+
+    // Before the logger is initialized: diagnostics reads the *running*
+    // instance's log, and init_file_logger truncates it.
+    if options.diagnostics {
+        match diagnostics::write_bundle() {
+            Ok(path) => system::show_version(&format!(
+                "Diagnostics written to:\n{}",
+                path.display()
+            )),
+            Err(e) => {
+                system::show_error(&format!("Could not write diagnostics:\n{e}"));
+                std::process::exit(1);
+            }
+        }
         return;
     }
 

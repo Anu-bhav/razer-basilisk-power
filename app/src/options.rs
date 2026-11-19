@@ -19,6 +19,9 @@ pub struct Options {
     pub install_autostart: bool,
     /// `--uninstall-autostart`: remove the per-user Run entry and exit.
     pub uninstall_autostart: bool,
+    /// `--diagnostics`: write a support bundle and exit without touching the
+    /// running log.
+    pub diagnostics: bool,
 }
 
 impl Options {
@@ -45,6 +48,7 @@ impl Options {
                 "--version" | "-V" => opts.version = true,
                 "--install-autostart" => opts.install_autostart = true,
                 "--uninstall-autostart" => opts.uninstall_autostart = true,
+                "--diagnostics" => opts.diagnostics = true,
                 other => return Err(format!("unknown argument: {other}")),
             }
         }
@@ -88,6 +92,12 @@ mod tests {
         assert!(parse(&["--install-autostart"]).unwrap().install_autostart);
         assert!(parse(&["--uninstall-autostart"]).unwrap().uninstall_autostart);
         assert!(!parse(&[]).unwrap().install_autostart);
+    }
+
+    #[test]
+    fn parses_diagnostics() {
+        assert!(parse(&["--diagnostics"]).unwrap().diagnostics);
+        assert!(!parse(&[]).unwrap().diagnostics);
     }
 
     #[test]

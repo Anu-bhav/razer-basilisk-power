@@ -176,14 +176,17 @@ them, and exits 1. A bad build therefore costs seconds, not a dead tray.
 ## Verifying a change
 
 [`verify.ps1`](verify.ps1) is the regression gate. It builds both workspaces,
-runs all 24 tests (the tray's tests are cross-compiled and executed natively on
-Windows), deploys, then checks:
+runs all 44 tests (10 in the root workspace, 34 in the tray; the tray's tests
+are cross-compiled and executed natively on Windows), deploys, then checks:
 
 | Check | What it proves |
 | --- | --- |
 | feed schema/ranges/freshness | tray is alive and writing a valid document |
 | widget idle | neon-blue fill, no ETA row, no magenta |
+| widget stale | fill and ETA hidden, `--` / `NO SIGNAL`, deterministic recovery |
+| widget low battery | coral-red fill and percentage, still no ETA row |
 | widget charging (fake feed) | magenta fill, ETA row/text, visible fill pulse |
+| autostart | Run value points at the deployed exe and uninstalls cleanly |
 | tray recovery | real feed returns after the fake-feed tests |
 | LED read-back | both devices still answer with the saved colours |
 
@@ -201,6 +204,21 @@ Then enable autostart from the tray menu (*Start with Windows*) or run
 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\Basilisk Power` pointing at
 the current exe; `--uninstall-autostart` removes it. Re-run the install command
 after moving the exe, because the stored path is absolute.
+
+### Tray maintenance flags
+
+| Flag | Effect |
+| --- | --- |
+| `--install-autostart` | Start with Windows (per-user Run value) and exit |
+| `--uninstall-autostart` | Remove the Run value and exit |
+| `--diagnostics` | Write a support bundle to `%LOCALAPPDATA%\BasiliskPower` and exit |
+| `--version`, `-V` | Print the version and git hash, then exit |
+
+The tray menu has the same entries: *Start with Windows*, *Export diagnostics…*,
+and *Open log*. The diagnostics bundle collects the version, OS, autostart
+state, feed, LED colours, Razer HID interfaces, widget files and the relevant
+log tails. It never reads unrelated files; review it once before posting it
+publicly because it contains local paths.
 
 ## `basilisk-power-cli`
 

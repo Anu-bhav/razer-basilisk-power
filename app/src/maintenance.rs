@@ -8,6 +8,7 @@
 //! | `battery-history.csv` | 1 row per reading   | 1 MB / 2000 rows |
 //! | `led-colors.txt`      | tiny, rewritten     | 4 lines        |
 //! | `*.backup`            | one-off from setup  | deleted after 7 days |
+//! | `diagnostics-*.txt`   | one per export      | deleted after 7 days |
 //!
 //! The log is already truncated on every launch, so the caps here are a
 //! safety net: if a bug ever makes the app log in a tight loop, or a reading
@@ -38,7 +39,7 @@ const MAX_BACKUP_AGE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 pub fn run_once(dir: &Path) {
     trim_to_size(&dir.join("basilisk-power.log"), MAX_LOG_BYTES, false);
     trim_history(&dir.join("battery-history.csv"));
-    remove_stale_backups(dir);
+    remove_stale_artifacts(dir);
 }
 
 /// Keep the newest `keep_lines` of a text file, dropping the oldest.
@@ -101,8 +102,9 @@ fn trim_history(path: &Path) {
     let _ = fs::write(path, out);
 }
 
-/// Delete one-off setup artefacts once they are old enough to be irrelevant.
-fn remove_stale_backups(dir: &Path) {
+/// Delete one-off setup and support artefacts once they are old enough to be
+/// irrelevant.
+fn remove_stale_artifacts(dir: &Path) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
@@ -114,7 +116,8 @@ fn remove_stale_backups(dir: &Path) {
         let name = name.to_string_lossy();
 
         let is_backup = name.ends_with(".backup") || name.ends_with(".bak");
-        if !is_backup {
+        let is_diagnostics = name.starts_with("diagnostics-") && name.ends_with(".txt");
+        if !is_backup && !is_diagnostics {
             continue;
         }
         let Some(cutoff) = cutoff else {

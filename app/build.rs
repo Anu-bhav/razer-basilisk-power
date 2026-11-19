@@ -5,6 +5,10 @@ use std::process::Command;
 fn main() {
     println!("cargo:rerun-if-changed=assets/basilisk-power.ico");
     println!("cargo:rerun-if-changed=../.git/HEAD");
+    // A commit updates the branch ref, not HEAD, so watching HEAD alone left
+    // the embedded hash at whatever it was when the build script last ran.
+    println!("cargo:rerun-if-changed=../.git/refs/heads/main");
+    println!("cargo:rerun-if-changed=../.git/packed-refs");
 
     let hash = Command::new("git")
         .args(["rev-parse", "--short", "HEAD"])

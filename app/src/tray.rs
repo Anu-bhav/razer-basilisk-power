@@ -198,6 +198,7 @@ struct MenuItems {
     refresh: MenuItem,
     reconnect: MenuItem,
     open_log: MenuItem,
+    diagnostics: MenuItem,
     autostart: CheckMenuItem,
     notifications: CheckMenuItem,
     version: MenuItem,
@@ -227,6 +228,7 @@ impl TrayInner {
             refresh: MenuItem::new("Refresh now", true, None),
             reconnect: MenuItem::new("Reconnect devices", true, None),
             open_log: MenuItem::new("Open log", true, None),
+            diagnostics: MenuItem::new("Export diagnostics…", true, None),
             autostart: CheckMenuItem::new(
                 "Start with Windows",
                 true,
@@ -244,6 +246,7 @@ impl TrayInner {
             &items.refresh,
             &items.reconnect,
             &items.open_log,
+            &items.diagnostics,
             &items.autostart,
             &items.notifications,
             &PredefinedMenuItem::separator(),
@@ -729,6 +732,23 @@ impl TrayApp {
                         if let Some(path) = system::log_path() {
                             if let Err(e) = system::open_path(&path) {
                                 error!("Failed to open log: {e}");
+                            }
+                        }
+                    }
+
+                    if event.id == menu_items.diagnostics.id() {
+                        match crate::diagnostics::write_bundle() {
+                            Ok(path) => {
+                                info!("Diagnostics written to {}", path.display());
+                                if let Err(e) = system::open_path(&path) {
+                                    error!("Failed to open diagnostics: {e}");
+                                }
+                            }
+                            Err(e) => {
+                                error!("Failed to write diagnostics: {e}");
+                                system::show_error(&format!(
+                                    "Could not write diagnostics:\n{e}"
+                                ));
                             }
                         }
                     }
