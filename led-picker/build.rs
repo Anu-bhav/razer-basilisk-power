@@ -16,4 +16,8 @@ fn main() {
 
     println!("cargo:rustc-env=BASILISK_GIT_HASH={hash}");
     println!("cargo:rerun-if-changed=../.git/HEAD");
+    // Commits move the branch ref, not HEAD; watch it too or the embedded
+    // hash goes stale after the first build.
+    println!("cargo:rerun-if-changed=../.git/refs/heads/main");
+    println!("cargo:rerun-if-changed=../.git/packed-refs");
 }

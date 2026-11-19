@@ -16,4 +16,8 @@ fn main() {
 
     println!("cargo:rustc-env=BASILISK_GIT_HASH={hash}");
     println!("cargo:rerun-if-changed=../.git/HEAD");
+    // A commit updates the branch ref, not HEAD, so watch both. Without this
+    // the stamped hash stayed at whatever it was when the script last ran.
+    println!("cargo:rerun-if-changed=../.git/refs/heads/main");
+    println!("cargo:rerun-if-changed=../.git/packed-refs");
 }
