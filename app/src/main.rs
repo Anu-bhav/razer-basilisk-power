@@ -83,6 +83,14 @@ fn main() {
         return;
     }
 
+    // A second instance would draw a second tray icon and, more importantly,
+    // truncate the running instance's log when the logger opens below. Take
+    // the lock before touching the log; a duplicate launch exits silently.
+    // Simulated runs are allowed alongside the real app.
+    if options.simulate_battery.is_none() && !system::acquire_single_instance_lock() {
+        return;
+    }
+
     // GUI-subsystem exe: stderr goes nowhere, so log to a file we can read
     // when something looks wrong in the tray.
     init_file_logger();
@@ -95,13 +103,6 @@ fn main() {
     // Keep the data folder from growing without bound: trim the log and the
     // history CSV, and drop stale one-off files.
     maintenance::run_once(&system::data_dir().unwrap_or_default());
-
-    // A second instance would draw a second tray icon; block it. Simulated
-    // runs (testing flags) are allowed alongside the real app.
-    if options.simulate_battery.is_none() && !system::acquire_single_instance_lock() {
-        log::info!("Another instance is already running, exiting");
-        return;
-    }
 
     TrayApp::new(options).run();
 }
