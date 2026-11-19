@@ -104,9 +104,35 @@ pub fn register_app_id(app_id: &str, display_name: &str, icon: &Path) -> Result<
     set("IconUri", &icon.to_string_lossy())
 }
 
+/// Selected once by `use_simulation_data_dir()` so every writer (log, feed,
+/// history, LED colours, maintenance) follows the simulated run.
+static DATA_DIR_OVERRIDE: std::sync::OnceLock<std::path::PathBuf> =
+    std::sync::OnceLock::new();
+
+/// Point `data_dir()` at `%LOCALAPPDATA%\BasiliskPower\sim`.
+///
+/// Simulated runs must never truncate the live tray's log or hijack its
+/// `status.json` / history. Called once, before the logger opens.
+pub fn use_simulation_data_dir() -> Result<(), String> {
+    let root = std::env::var_os("LOCALAPPDATA").ok_or("LOCALAPPDATA is not set")?;
+    let dir = std::path::PathBuf::from(root)
+        .join("BasiliskPower")
+        .join("sim");
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+    DATA_DIR_OVERRIDE
+        .set(dir)
+        .map_err(|_| "the data directory is already selected".to_string())
+}
+
 /// Per-app data directory: %LOCALAPPDATA%\BasiliskPower (created on demand).
-/// Holds the log, status.json, the history CSV and the toast icon.
+/// Holds the log, status.json, the history CSV and the toast icon. Simulated
+/// runs get the `sim` subfolder instead.
 pub fn data_dir() -> Option<std::path::PathBuf> {
+    if let Some(dir) = DATA_DIR_OVERRIDE.get() {
+        let _ = std::fs::create_dir_all(dir);
+        return Some(dir.clone());
+    }
     std::env::var_os("LOCALAPPDATA").map(|root| {
         let dir = std::path::PathBuf::from(root).join("BasiliskPower");
         let _ = std::fs::create_dir_all(&dir);

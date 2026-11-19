@@ -43,6 +43,17 @@ fn main() {
         return;
     }
 
+    // Simulated runs write to their own folder: sharing the live folder
+    // would truncate the running tray's log and replace its feed/history.
+    if options.uses_simulation_data() {
+        if let Err(e) = system::use_simulation_data_dir() {
+            system::show_error(&format!(
+                "Could not prepare the simulation data folder:\n{e}"
+            ));
+            std::process::exit(1);
+        }
+    }
+
     // Before the logger is initialized: diagnostics reads the *running*
     // instance's log, and init_file_logger truncates it.
     if options.diagnostics {
@@ -86,8 +97,9 @@ fn main() {
     // A second instance would draw a second tray icon and, more importantly,
     // truncate the running instance's log when the logger opens below. Take
     // the lock before touching the log; a duplicate launch exits silently.
-    // Simulated runs are allowed alongside the real app.
-    if options.simulate_battery.is_none() && !system::acquire_single_instance_lock() {
+    // Simulated runs have their own data folder and are allowed alongside the
+    // real app.
+    if !options.uses_simulation_data() && !system::acquire_single_instance_lock() {
         return;
     }
 

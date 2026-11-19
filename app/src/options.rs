@@ -25,6 +25,12 @@ pub struct Options {
 }
 
 impl Options {
+    /// True when this run simulates hardware and must use the isolated
+    /// `BasiliskPower\sim` data folder instead of the live one.
+    pub fn uses_simulation_data(self) -> bool {
+        self.simulate_battery.is_some() || self.simulate_game
+    }
+
     pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Self, String> {
         let mut opts = Options::default();
         let mut args = args.into_iter();
@@ -78,6 +84,15 @@ mod tests {
         assert!(opts.simulate_game);
         assert!(opts.fast_reminders);
         assert!(opts.digits);
+    }
+
+    #[test]
+    fn only_hardware_simulations_get_an_isolated_data_dir() {
+        assert!(parse(&["--simulate-battery", "23"]).unwrap().uses_simulation_data());
+        assert!(parse(&["--simulate-game"]).unwrap().uses_simulation_data());
+        assert!(!parse(&["--fast-reminders"]).unwrap().uses_simulation_data());
+        assert!(!parse(&["--digits"]).unwrap().uses_simulation_data());
+        assert!(!parse(&[]).unwrap().uses_simulation_data());
     }
 
     #[test]

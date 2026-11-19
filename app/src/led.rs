@@ -64,8 +64,7 @@ impl Target {
 pub type Rgb = (u8, u8, u8);
 
 fn config_path() -> Option<PathBuf> {
-    std::env::var_os("LOCALAPPDATA")
-        .map(|base| PathBuf::from(base).join("BasiliskPower").join("led-colors.txt"))
+    crate::system::data_dir().map(|dir| dir.join("led-colors.txt"))
 }
 
 /// The last colour successfully written to a target.
