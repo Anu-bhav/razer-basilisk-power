@@ -43,6 +43,9 @@ const DOCK_DETECT_IDLE: Duration = Duration::from_secs(8);
 /// The dock relay can alternate its charging flag on consecutive samples.
 /// Publish a transition only after this many reads agree.
 const CHARGING_CONFIRM_READS: u8 = 2;
+/// While charging, ask only for the charging flag on the fast loop so a
+/// lift-off is noticed in seconds instead of at the next battery read.
+const CHARGE_PROBE_INTERVAL: Duration = Duration::from_secs(5);
 /// Window of level samples used for the time-to-full estimate.
 const CHARGE_HISTORY_WINDOW: Duration = Duration::from_secs(45 * 60);
 
@@ -439,6 +442,7 @@ impl TrayApp {
             let mut last_devices = HashSet::new();
             let mut debouncer = Debouncer::new(CONNECTION_DEBOUNCE);
             let mut next_battery_poll = Instant::now();
+            let mut next_charge_probe = Instant::now();
             let mut force_refresh = false;
             let mut last_light_theme = system::taskbar_is_light();
             let mut system_was_idle = false;
@@ -601,21 +605,42 @@ impl TrayApp {
                     trace!("Fullscreen app running, holding reminders");
                 }
 
+                // While charging, the battery level moves slowly; the event
+                // that must be noticed quickly is the mouse leaving the dock.
+                // Probe only the charging flag on the fast loop, at most once
+                // per CHARGE_PROBE_INTERVAL. The full battery read (with its
+                // level and time-to-full estimate) stays on the adaptive
+                // schedule. A confirmed flip below forces the next full read.
+                if now >= next_charge_probe {
+                    if !read_this_round && options.simulate_battery.is_none() {
+                        for (&id, device) in guard.iter_mut() {
+                            if device.stale || !device.wants_charge_probe() {
+                                continue;
+                            }
+                            let raw = manager.probe_charging(id);
+                            if device.apply_charging_reading(raw) {
+                                info!(
+                                    "{}: charging state {} (fast probe)",
+                                    device.name,
+                                    if device.is_charging {
+                                        "started"
+                                    } else {
+                                        "stopped"
+                                    }
+                                );
+                                check_full(device, &notify, &notifications_enabled);
+                                ui_changed = true;
+                            }
+                        }
+                    }
+                    next_charge_probe = now + CHARGE_PROBE_INTERVAL;
+                }
+
                 // Charging changes are the interesting ones for the widget: the
                 // user docking or lifting the mouse should show up immediately,
                 // not whenever the adaptive interval next allows (up to 4 hours
                 // on a full battery). Remember what each device reported last
                 // tick and short-circuit the wait when it flips.
-                //
-                // The dock's LED effect is read on this fast loop (every few
-                // seconds) so a dock or undock is caught within one tick
-                // rather than on the next battery poll. The effect id is the
-                // ground truth for the charging cycle, so this also settles
-                // the charging flag without waiting for a battery read.
-                // Dock/undock must be noticed immediately, not on the
-                // adaptive battery interval (which stretches to hours on a
-                // healthy battery). The relayed charging flag is the reliable
-                // signal; this block just shortens the wait when it flips.
                 let mut charging_changed = false;
                 for (&id, device) in guard.iter() {
                     if device.stale {
@@ -1327,6 +1352,33 @@ mod tests {
 
         assert!(device.apply_charging_reading(None));
         assert!(!device.is_charging);
+    }
+
+    #[test]
+    fn charge_probe_is_only_wanted_while_docked() {
+        let mut device = MemoryDevice::new("Mouse".to_string());
+        assert!(!device.wants_charge_probe());
+
+        assert!(device.apply_charging_reading(Some(true)));
+        assert!(device.wants_charge_probe());
+
+        assert!(!device.apply_charging_reading(Some(false)));
+        assert!(device.wants_charge_probe());
+
+        assert!(device.apply_charging_reading(Some(false)));
+        assert!(!device.wants_charge_probe());
+    }
+
+    #[test]
+    fn failed_probe_stops_after_confirmation() {
+        let mut device = MemoryDevice::new("Mouse".to_string());
+        assert!(device.apply_charging_reading(Some(true)));
+
+        assert!(!device.apply_charging_reading(None));
+        assert!(device.wants_charge_probe());
+
+        assert!(device.apply_charging_reading(None));
+        assert!(!device.wants_charge_probe());
     }
 
     #[test]

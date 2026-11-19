@@ -1,5 +1,5 @@
 use hidapi::HidApi;
-use log::warn;
+use log::{debug, warn};
 use std::collections::{HashMap, HashSet};
 
 use crate::controller::DeviceController;
@@ -150,6 +150,30 @@ impl DeviceManager {
             Err(err) => {
                 warn!("Failed to get charging status: {:?}", err);
                 self.stale.insert(controller.pid);
+                None
+            }
+        }
+    }
+
+    /// Ask only for the charging flag on the fast loop.
+    ///
+    /// Unlike `is_device_charging`, a failed probe does not mark the
+    /// controller stale: the relay can be briefly busy while the mouse is
+    /// charging, and a full battery read will repair the state anyway.
+    pub fn probe_charging(&self, id: u32) -> Option<bool> {
+        let controller = self
+            .device_controllers
+            .iter()
+            .find(|c| c.pid as u32 == id)?;
+
+        if controller.swappable_battery {
+            return Some(false);
+        }
+
+        match controller.probe_charging_status() {
+            Ok(status) => Some(status),
+            Err(err) => {
+                debug!("Fast charging probe failed: {:?}", err);
                 None
             }
         }

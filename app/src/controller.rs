@@ -145,13 +145,33 @@ impl DeviceController {
         Ok(charging_status)
     }
 
+    /// Single-attempt charging read for the fast undock probe.
+    ///
+    /// The full send path can spend seconds retrying a sleeping relay. The
+    /// fast loop runs every few seconds anyway, so one attempt is enough:
+    /// a busy relay is simply asked again on the next tick.
+    pub fn probe_charging_status(&self) -> Result<bool, Box<dyn std::error::Error>> {
+        let request = self.create_command(0x07, 0x84, 0x02);
+        let response = self.send_payload_with_tries(request, 1)?;
+        let charging_status = response.arguments[1] != 0;
+        Ok(charging_status)
+    }
+
     pub fn send_payload(
         &self,
+        request: RazerReport,
+    ) -> Result<RazerReport, Box<dyn std::error::Error>> {
+        self.send_payload_with_tries(request, MAX_TRIES_SEND)
+    }
+
+    fn send_payload_with_tries(
+        &self,
         mut request: RazerReport,
+        max_tries: u8,
     ) -> Result<RazerReport, Box<dyn std::error::Error>> {
         request.crc = request.calculate_crc();
 
-        for _ in 0..MAX_TRIES_SEND {
+        for attempt in 0..max_tries {
             self.usb_send(&request)?;
             let response = self.usb_receive()?;
 
@@ -168,7 +188,9 @@ impl DeviceController {
                     "Response doesn't match request (status {:#04x}), retrying",
                     response.status
                 );
-                thread::sleep(TIME_BETWEEN_RETRIES);
+                if attempt + 1 < max_tries {
+                    thread::sleep(TIME_BETWEEN_RETRIES);
+                }
                 continue;
             }
 
@@ -181,11 +203,14 @@ impl DeviceController {
                 _ => return Err("Error unknown report status".into()),
             }
 
+            if attempt + 1 == max_tries {
+                break;
+            }
             thread::sleep(TIME_BETWEEN_SEND);
             warn!("Trying to resend command");
         }
 
-        Err(format!("Abort command (tries: {})", MAX_TRIES_SEND).into())
+        Err(format!("Abort command (tries: {max_tries})").into())
     }
 
     pub fn create_command(&self, command_class: u8, command_id: u8, data_size: u8) -> RazerReport {
