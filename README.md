@@ -20,6 +20,7 @@ with Mouse Dock Pro support and several new features. MIT licensed.
 | [`razer-battery/`](razer-battery/) | HID library: battery reads, LED control, protocol |
 | [`basilisk-power/`](basilisk-power/) | `basilisk-power-cli` — battery + LED command line tool |
 | [`led-picker/`](led-picker/) | Compact OpenRGB-style colour-wheel GUI |
+| [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) | Symptom-first recovery guide |
 
 ## Features
 
@@ -400,12 +401,15 @@ These cost real debugging time; they are documented in the skin comments too.
 | `basilisk-power.log` | 2 MB (also truncated on each launch) |
 | `battery-history.csv` | 1 MB / 2000 rows |
 | `*.backup`, `*.bak` | deleted after 7 days |
+| `diagnostics-*.txt` | deleted after 7 days |
 
 The two executables, `led-colors.txt` and `status.json` are never touched.
 
 ## Logs
 
-`%LOCALAPPDATA%\BasiliskPower\basilisk-power.log` — fresh per launch.
+`%LOCALAPPDATA%\BasiliskPower\basilisk-power.log` — fresh per launch. For
+symptoms, start with [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md); for a support
+bundle, use tray menu → **Export diagnostics…** or `--diagnostics`.
 
 ## Credits
 
