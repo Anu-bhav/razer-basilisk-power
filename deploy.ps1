@@ -127,35 +127,79 @@ if (-not $SkipSkin) {
         @{ Src = "@Resources\Variables.inc"; Dst = (Join-Path $Skin "@Resources\Variables.inc") }
         @{ Src = "@Resources\freshness.lua"; Dst = (Join-Path $Skin "@Resources\freshness.lua") }
     )
+    # Stage every file that is about to be replaced. If any copy or hash check
+    # fails, these are put back so the live skin is never left half-updated.
+    $skinStage = Join-Path $env:TEMP "opencode\basilisk-skin-backup"
+    if (Test-Path $skinStage) { Remove-Item $skinStage -Recurse -Force }
+    New-Item -ItemType Directory -Path $skinStage -Force | Out-Null
+    $skinRollback = @()
+    foreach ($p in $pairs) {
+        $staged = $null
+        if (Test-Path $p.Dst) {
+            $staged = Join-Path $skinStage ($p.Src -replace '[\\/]', '_')
+            Copy-Item -LiteralPath $p.Dst -Destination $staged -Force
+        }
+        $skinRollback += @{ Dst = $p.Dst; Backup = $staged }
+    }
+
+    $skinFailed = $false
     foreach ($p in $pairs) {
         $src = Join-Path $skinSrc $p.Src
         if (-not (Test-Path $src)) {
             Write-Host "  MISSING SOURCE: $src" -ForegroundColor Red
-            $failed = $true
+            $skinFailed = $true
             continue
         }
         $srcHash = Get-Hash $src
-        Copy-Item -LiteralPath $src -Destination $p.Dst -Force
+        try {
+            Copy-Item -LiteralPath $src -Destination $p.Dst -Force
+        } catch {
+            Write-Host "  COPY FAILED ($($p.Src)): $($_.Exception.Message)" -ForegroundColor Red
+            $skinFailed = $true
+            continue
+        }
         $dstHash = Get-Hash $p.Dst
         if ($srcHash -eq $dstHash) {
             Write-Host "  OK   $($p.Src)" -ForegroundColor Green
         } else {
             Write-Host "  HASH MISMATCH: $($p.Src)" -ForegroundColor Red
-            $failed = $true
+            $skinFailed = $true
         }
     }
 
-    # stale.inc was removed from the skin; delete any deployed copy so a
-    # stale include cannot be loaded by an older basilisk.ini.
-    $old = Join-Path $Skin "@Resources\stale.inc"
-    if (Test-Path $old) {
-        Remove-Item $old -Force
-        Write-Host "  removed obsolete @Resources\stale.inc" -ForegroundColor DarkGray
+    if ($skinFailed) {
+        Write-Host "  restoring the previous skin files..." -ForegroundColor Yellow
+        foreach ($r in $skinRollback) {
+            if ($r.Backup -and (Test-Path $r.Backup)) {
+                Copy-Item -LiteralPath $r.Backup -Destination $r.Dst -Force
+            } elseif (Test-Path $r.Dst) {
+                Remove-Item $r.Dst -Force
+            }
+        }
+        $failed = $true
+    } else {
+        # Keep the hand-tuned skin that was live before this deploy. The new
+        # file has already replaced it, so the staged copy is the previous one.
+        # maintenance.rs deliberately never age-deletes this file.
+        $previousIni = Join-Path $skinStage "basilisk.ini"
+        if (Test-Path $previousIni) {
+            Copy-Item -LiteralPath $previousIni -Destination (Join-Path $Dest "basilisk.ini.backup") -Force
+            Write-Host "  saved previous skin as basilisk.ini.backup" -ForegroundColor DarkGray
+        }
+
+        # stale.inc was removed from the skin; delete any deployed copy so a
+        # stale include cannot be loaded by an older basilisk.ini.
+        $old = Join-Path $Skin "@Resources\stale.inc"
+        if (Test-Path $old) {
+            Remove-Item $old -Force
+            Write-Host "  removed obsolete @Resources\stale.inc" -ForegroundColor DarkGray
+        }
     }
 
     # Rainmeter does not reload a skin when the .ini is replaced from outside
     # its own editor, so the new file would sit unused until the next launch.
-    # Restart it when it is running; a closed Rainmeter is left alone.
+    # Restart it when it is running; a closed Rainmeter is left alone. This
+    # also reloads the restored files after a failed skin deploy.
     $rainmeter = Get-Process Rainmeter -ErrorAction SilentlyContinue
     if ($rainmeter) {
         Write-Host "  restarting Rainmeter to load the new skin" -ForegroundColor DarkGray

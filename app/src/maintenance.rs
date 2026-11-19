@@ -7,7 +7,8 @@
 //! | `basilisk-power.log`  | per launch (truncate) | 2 MB         |
 //! | `battery-history.csv` | 1 row per reading   | 1 MB / 2000 rows |
 //! | `led-colors.txt`      | tiny, rewritten     | 4 lines        |
-//! | `*.backup`            | one-off from setup  | deleted after 7 days |
+//! | `basilisk.ini.backup` | one per skin deploy | kept forever (rollback) |
+//! | other `*.backup`      | one per deploy      | deleted after 7 days |
 //! | `diagnostics-*.txt`   | one per export      | deleted after 7 days |
 //!
 //! The log is already truncated on every launch, so the caps here are a
@@ -31,6 +32,10 @@ const KEEP_HISTORY_ROWS: usize = 2000;
 
 /// One-off files (`.backup` and friends) older than this are removed.
 const MAX_BACKUP_AGE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+
+/// The deployed skin's rollback copy. It is hand-tuned by the user and cannot
+/// be recreated from source, so age must never delete it.
+const PRESERVED_BACKUP: &str = "basilisk.ini.backup";
 
 /// Trim the files this app owns. Cheap, idempotent, safe to call on a timer.
 ///
@@ -115,6 +120,10 @@ fn remove_stale_artifacts(dir: &Path) {
         let name = entry.file_name();
         let name = name.to_string_lossy();
 
+        if is_preserved(&name) {
+            continue;
+        }
+
         let is_backup = name.ends_with(".backup") || name.ends_with(".bak");
         let is_diagnostics = name.starts_with("diagnostics-") && name.ends_with(".txt");
         if !is_backup && !is_diagnostics {
@@ -132,5 +141,64 @@ fn remove_stale_artifacts(dir: &Path) {
         if modified < cutoff {
             let _ = fs::remove_file(&path);
         }
+    }
+}
+
+/// True for artefacts that must survive every cleanup pass.
+fn is_preserved(name: &str) -> bool {
+    name.eq_ignore_ascii_case(PRESERVED_BACKUP)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn skin_backup_is_never_treated_as_stale() {
+        assert!(is_preserved("basilisk.ini.backup"));
+        assert!(is_preserved("BASILISK.INI.BACKUP"));
+    }
+
+    #[test]
+    fn other_artifacts_are_still_age_cleaned() {
+        assert!(!is_preserved("basilisk-power.exe.backup"));
+        assert!(!is_preserved("diagnostics-2026-11-18.txt"));
+        assert!(!is_preserved("led-colors.txt"));
+    }
+
+    #[test]
+    fn cleanup_keeps_the_skin_backup_and_removes_old_artifacts() {
+        let unique = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("bp-maint-{}-{unique}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+
+        let backup = dir.join(PRESERVED_BACKUP);
+        let old_diag = dir.join("diagnostics-old.txt");
+        let old_bak = dir.join("led-colors.txt.bak");
+        for path in [&backup, &old_diag, &old_bak] {
+            fs::write(path, "x").unwrap();
+        }
+
+        // Age everything past the 7-day cutoff.
+        let old = SystemTime::now() - Duration::from_secs(8 * 24 * 60 * 60);
+        for path in [&backup, &old_diag, &old_bak] {
+            fs::File::options()
+                .write(true)
+                .open(path)
+                .unwrap()
+                .set_modified(old)
+                .unwrap();
+        }
+
+        run_once(&dir);
+
+        assert!(backup.exists(), "the hand-tuned skin backup was deleted");
+        assert!(!old_diag.exists(), "an old diagnostics bundle survived");
+        assert!(!old_bak.exists(), "an old .bak file survived");
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

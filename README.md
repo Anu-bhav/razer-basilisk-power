@@ -174,6 +174,11 @@ for a fresh `status.json` naming a real device. If no valid feed appears, it
 kills the new tray, restores the previous binaries from `*.backup`, restarts
 them, and exits 1. A bad build therefore costs seconds, not a dead tray.
 
+The skin is protected the same way: every file about to be replaced is staged
+first and restored if a copy or hash check fails. A successful deploy keeps the
+previous `basilisk.ini` as `%LOCALAPPDATA%\BasiliskPower\basilisk.ini.backup`
+for a manual rollback.
+
 ## Verifying a change
 
 [`verify.ps1`](verify.ps1) is the regression gate. It builds both workspaces,
@@ -400,7 +405,8 @@ These cost real debugging time; they are documented in the skin comments too.
 | --- | --- |
 | `basilisk-power.log` | 2 MB (also truncated on each launch) |
 | `battery-history.csv` | 1 MB / 2000 rows |
-| `*.backup`, `*.bak` | deleted after 7 days |
+| `basilisk.ini.backup` | kept forever (skin rollback) |
+| other `*.backup`, `*.bak` | deleted after 7 days |
 | `diagnostics-*.txt` | deleted after 7 days |
 
 The two executables, `led-colors.txt` and `status.json` are never touched.
