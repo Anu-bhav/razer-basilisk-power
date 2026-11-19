@@ -105,12 +105,14 @@ fn adaptive_wait(level: Option<i32>, charging: bool, system_idle: bool) -> Durat
     }
 }
 
-/// How soon the skin should next read status.json.
+/// Value published as `poll`: an advisory hint for consumers that want to know
+/// how soon the next HID battery read is expected.
 ///
-/// This is deliberately separate from the battery's own adaptive interval:
-/// the skin only needs to look again quickly when something actually changed.
+/// This is deliberately separate from the feed's write cadence. `poll` never
+/// meant "seconds until status.json is rewritten", and the bundled skin uses
+/// its own fixed 2 s read interval rather than this field.
 /// `read_this_round` is true when this tick re-read a device, which happens on
-/// every level or charge-state change.
+/// every level or charge-state change; 1 marks that fresh read.
 fn poll_hint(
     level: Option<i32>,
     charging: bool,

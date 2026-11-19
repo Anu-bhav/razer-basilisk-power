@@ -49,9 +49,14 @@ with Mouse Dock Pro support and several new features. MIT licensed.
   is idle the mouse is polled every minute so a dock drop is noticed fast;
   input going idle (docking the mouse) or returning (picking it up) triggers
   an immediate read.
-- **Instant dock reaction.** Any charging-state change forces an immediate
-  re-poll and an immediate `status.json` rewrite, so the tray and widget agree
-  within a second instead of waiting out the adaptive interval.
+- **Fast undock reaction.** While charging, the tray asks only for the
+  charging flag every 5 s. A change is confirmed on two consecutive reads, then
+  forces a full re-poll and an immediate `status.json` rewrite: lifting the
+  mouse reaches the tray and widget in about ten seconds instead of waiting
+  out the adaptive interval (up to four hours at 100%).
+- **Quiet feed.** `status.json` is rewritten whenever its data changes, and at
+  least every 30 s so its freshness stamp stays current. An idle tray no
+  longer rewrites an identical file every loop.
 - **Hover to refresh.** Hovering the tray icon requests a fresh read
   (throttled to one per 10 s) so the tooltip shows the latest charging data.
 - **Time-to-full estimate.** While charging, the tooltip and widget show
@@ -321,7 +326,7 @@ then refresh Rainmeter. `deploy.ps1` does this for you (see
 | `name` | Device name |
 | `updated` | Local `HH:MM` of the write |
 | `updated_unix` | Unix epoch of the write, for exact freshness checks |
-| `poll` | Seconds until the tray next writes |
+| `poll` | Advisory seconds until the next scheduled HID battery read (`1` = this tick just read). The bundled skin uses its own fixed cadence and ignores this field. |
 
 `battery-history.csv` appends a row per reading (`date,time,level,charging,source`),
 trimmed to 2000 rows / 1 MB.
