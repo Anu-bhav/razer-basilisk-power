@@ -111,7 +111,7 @@ if (-not $SkipBuild) {
 }
 
 Write-Host "`n=== Tests ===" -ForegroundColor Cyan
-wsl -d Ubuntu -- bash -c "cd '$WslRepo' && cargo test --release 2>&1 | tail -20"
+wsl -d Ubuntu -- bash -c "set -o pipefail; cd '$WslRepo' && cargo test --release 2>&1 | tail -20"
 Check "root workspace tests" ($LASTEXITCODE -eq 0)
 
 # The tray is a separate workspace and needs GTK to build for Linux, so its
