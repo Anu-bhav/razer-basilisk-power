@@ -75,6 +75,11 @@ charging code.
 - No feature is done until `verify.ps1` passes (builds + all tests + feed +
   widget idle/charging + LED read-back).
 - Keep `Cargo.lock` in both workspaces.
+- **Every exe must report the checked-out commit.** `--version` in the tray and
+  CLI, the tray menu and the startup log all show the stamp. Build scripts must
+  watch the branch ref (`refs/heads/main`) and `packed-refs`, not just
+  `.git/HEAD`: commits move the ref, so watching HEAD alone left an old hash.
+  A stale hash in a diagnostics bundle makes support harder.
 - **Autostart is one `HKCU` Run value** (`Basilisk Power`) managed by
   `--install-autostart` / `--uninstall-autostart` and the tray menu toggle.
   Never write `HKLM`; no admin rights. The value stores an absolute path, so
