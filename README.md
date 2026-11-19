@@ -70,8 +70,10 @@ with Mouse Dock Pro support and several new features. MIT licensed.
 - **Low-battery reminders** (escalating schedule, critical at ≤ 5%), fully
   charged toasts, connection toasts, fullscreen-game awareness, wake-on-input
   retries for a sleeping mouse.
-- **Single instance** (named mutex) and easy **autostart** (Run key or
-  `shell:startup` shortcut).
+- **Single instance** (named mutex) and **managed autostart**: the tray menu's
+  *Start with Windows* toggle, or `--install-autostart` /
+  `--uninstall-autostart` for scripts. It writes one `HKCU` Run value; no
+  shortcut and no admin rights.
 
 ### LED colour
 
@@ -194,8 +196,11 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\opencode\verify.ps1"
 invariants behind these checks are written down in
 [`REGRESSIONS.md`](REGRESSIONS.md).
 
-Then either add a `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` value
-pointing at `basilisk-power.exe`, or drop a shortcut in `shell:startup`.
+Then enable autostart from the tray menu (*Start with Windows*) or run
+`basilisk-power.exe --install-autostart` once. It stores
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Run\Basilisk Power` pointing at
+the current exe; `--uninstall-autostart` removes it. Re-run the install command
+after moving the exe, because the stored path is absolute.
 
 ## `basilisk-power-cli`
 

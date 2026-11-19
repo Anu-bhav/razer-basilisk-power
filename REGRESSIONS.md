@@ -75,3 +75,7 @@ charging code.
 - No feature is done until `verify.ps1` passes (builds + all tests + feed +
   widget idle/charging + LED read-back).
 - Keep `Cargo.lock` in both workspaces.
+- **Autostart is one `HKCU` Run value** (`Basilisk Power`) managed by
+  `--install-autostart` / `--uninstall-autostart` and the tray menu toggle.
+  Never write `HKLM`; no admin rights. The value stores an absolute path, so
+  re-install after moving the exe. Turning it off must leave no value behind.

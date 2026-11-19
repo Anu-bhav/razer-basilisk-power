@@ -15,6 +15,10 @@ pub struct Options {
     pub digits: bool,
     /// `--version`: print the version and exit without touching the log.
     pub version: bool,
+    /// `--install-autostart`: add the per-user Run entry and exit.
+    pub install_autostart: bool,
+    /// `--uninstall-autostart`: remove the per-user Run entry and exit.
+    pub uninstall_autostart: bool,
 }
 
 impl Options {
@@ -39,6 +43,8 @@ impl Options {
                 "--fast-reminders" => opts.fast_reminders = true,
                 "--digits" => opts.digits = true,
                 "--version" | "-V" => opts.version = true,
+                "--install-autostart" => opts.install_autostart = true,
+                "--uninstall-autostart" => opts.uninstall_autostart = true,
                 other => return Err(format!("unknown argument: {other}")),
             }
         }
@@ -75,6 +81,13 @@ mod tests {
         assert!(parse(&["--version"]).unwrap().version);
         assert!(parse(&["-V"]).unwrap().version);
         assert!(!parse(&[]).unwrap().version);
+    }
+
+    #[test]
+    fn parses_autostart_flags() {
+        assert!(parse(&["--install-autostart"]).unwrap().install_autostart);
+        assert!(parse(&["--uninstall-autostart"]).unwrap().uninstall_autostart);
+        assert!(!parse(&[]).unwrap().install_autostart);
     }
 
     #[test]

@@ -42,6 +42,30 @@ fn main() {
         return;
     }
 
+    if options.install_autostart {
+        match system::set_autostart(true) {
+            Ok(()) => system::show_version("Basilisk Power will now start with Windows."),
+            Err(e) => {
+                log::error!("Failed to enable autostart: {e}");
+                system::show_error(&format!("Could not enable autostart:\n{e}"));
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
+    if options.uninstall_autostart {
+        match system::set_autostart(false) {
+            Ok(()) => system::show_version("Basilisk Power will no longer start with Windows."),
+            Err(e) => {
+                log::error!("Failed to disable autostart: {e}");
+                system::show_error(&format!("Could not disable autostart:\n{e}"));
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
     // GUI-subsystem exe: stderr goes nowhere, so log to a file we can read
     // when something looks wrong in the tray.
     init_file_logger();

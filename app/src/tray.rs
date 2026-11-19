@@ -198,6 +198,7 @@ struct MenuItems {
     refresh: MenuItem,
     reconnect: MenuItem,
     open_log: MenuItem,
+    autostart: CheckMenuItem,
     notifications: CheckMenuItem,
     version: MenuItem,
     quit: MenuItem,
@@ -226,6 +227,12 @@ impl TrayInner {
             refresh: MenuItem::new("Refresh now", true, None),
             reconnect: MenuItem::new("Reconnect devices", true, None),
             open_log: MenuItem::new("Open log", true, None),
+            autostart: CheckMenuItem::new(
+                "Start with Windows",
+                true,
+                system::autostart_enabled(),
+                None,
+            ),
             notifications: CheckMenuItem::new("Notifications", true, true, None),
             version: MenuItem::new(version_text(), false, None),
             quit: MenuItem::new("Exit", true, None),
@@ -237,6 +244,7 @@ impl TrayInner {
             &items.refresh,
             &items.reconnect,
             &items.open_log,
+            &items.autostart,
             &items.notifications,
             &PredefinedMenuItem::separator(),
             &items.version,
@@ -721,6 +729,23 @@ impl TrayApp {
                         if let Some(path) = system::log_path() {
                             if let Err(e) = system::open_path(&path) {
                                 error!("Failed to open log: {e}");
+                            }
+                        }
+                    }
+
+                    if event.id == menu_items.autostart.id() {
+                        let want = !menu_items.autostart.is_checked();
+                        match system::set_autostart(want) {
+                            Ok(()) => {
+                                let _ = menu_items.autostart.set_checked(want);
+                                info!(
+                                    "Autostart {}",
+                                    if want { "enabled" } else { "disabled" }
+                                );
+                            }
+                            Err(e) => {
+                                error!("Failed to change autostart: {e}");
+                                let _ = menu_items.autostart.set_checked(!want);
                             }
                         }
                     }

@@ -141,6 +141,28 @@ if (-not $SkipDeploy) {
     }
 }
 
+# ------------------------------------------------------------------ autostart
+Write-Host "`n=== Autostart ===" -ForegroundColor Cyan
+$runKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+$runName = "Basilisk Power"
+$trayExe = Join-Path $Dest "basilisk-power.exe"
+$prior = (Get-ItemProperty -Path $runKey -Name $runName -ErrorAction SilentlyContinue).$runName
+$autoOut = Join-Path $env:TEMP "basilisk-autostart.txt"
+
+$p = Start-Process $trayExe -ArgumentList "--install-autostart" -Wait -PassThru -RedirectStandardOutput $autoOut
+$installed = (Get-ItemProperty -Path $runKey -Name $runName -ErrorAction SilentlyContinue).$runName
+Check "autostart installs a Run value" ($p.ExitCode -eq 0 -and $installed) "exit=$($p.ExitCode) value=$installed"
+Check "autostart points at the deployed exe" ($installed -and $installed -match [regex]::Escape($trayExe)) "value=$installed"
+
+$p = Start-Process $trayExe -ArgumentList "--uninstall-autostart" -Wait -PassThru -RedirectStandardOutput $autoOut
+$removed = (Get-ItemProperty -Path $runKey -Name $runName -ErrorAction SilentlyContinue).$runName
+Check "autostart uninstall removes the value" ($p.ExitCode -eq 0 -and -not $removed) "exit=$($p.ExitCode) value=$removed"
+
+# Leave the user's machine exactly as it was before the gate ran.
+if ($prior) {
+    New-ItemProperty -Path $runKey -Name $runName -Value $prior -PropertyType String -Force | Out-Null
+}
+
 # ----------------------------------------------------------------- widget test
 Add-Type -AssemblyName System.Drawing
 Add-Type @'

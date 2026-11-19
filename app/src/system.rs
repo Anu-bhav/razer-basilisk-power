@@ -242,6 +242,88 @@ pub fn show_error(text: &str) {
     eprintln!("{text}");
 }
 
+
+/// Registry location used for "start with Windows". The Run key starts the
+/// exe at login without a shortcut and without a console flash.
+#[cfg(windows)]
+const AUTOSTART_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+#[cfg(windows)]
+const AUTOSTART_NAME: &str = "Basilisk Power";
+
+/// Run a console tool without flashing a window from this GUI process.
+#[cfg(windows)]
+fn hidden(command: &mut std::process::Command) -> &mut std::process::Command {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    command.creation_flags(CREATE_NO_WINDOW)
+}
+
+/// Is the tray registered to start with Windows?
+pub fn autostart_enabled() -> bool {
+    #[cfg(windows)]
+    {
+        let output = hidden(
+            std::process::Command::new("reg")
+                .args(["query", AUTOSTART_KEY, "/v", AUTOSTART_NAME]),
+        )
+        .output();
+        output.map(|o| o.status.success()).unwrap_or(false)
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
+/// Add or remove the Run-key entry that starts this exe at login.
+pub fn set_autostart(enabled: bool) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        let exe = std::env::current_exe()
+            .map_err(|e| format!("cannot find the tray executable: {e}"))?;
+        if enabled {
+            let value = format!("\"{}\"", exe.display());
+            let status = hidden(
+                std::process::Command::new("reg").args([
+                    "add",
+                    AUTOSTART_KEY,
+                    "/v",
+                    AUTOSTART_NAME,
+                    "/t",
+                    "REG_SZ",
+                    "/d",
+                    &value,
+                    "/f",
+                ]),
+            )
+            .output()
+            .map_err(|e| format!("cannot run reg.exe: {e}"))?;
+            if status.status.success() {
+                Ok(())
+            } else {
+                Err(format!("reg add failed with {}", status.status))
+            }
+        } else {
+            // Deleting a value that is not there is not an error for us.
+            let _ = hidden(
+                std::process::Command::new("reg")
+                    .args(["delete", AUTOSTART_KEY, "/v", AUTOSTART_NAME, "/f"]),
+            )
+            .output();
+            if autostart_enabled() {
+                Err("the startup entry is still present".to_string())
+            } else {
+                Ok(())
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = enabled;
+        Err("autostart is only supported on Windows".to_string())
+    }
+}
+
 pub fn local_time_parts() -> (String, String, String) {
     use winapi::um::minwinbase::SYSTEMTIME;
     use winapi::um::sysinfoapi::GetLocalTime;
