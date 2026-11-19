@@ -184,16 +184,17 @@ function Get-WidgetShot {
 }
 
 function Measure-Battery([System.Drawing.Bitmap]$Bmp) {
-    $blue = 0; $magenta = 0
+    $blue = 0; $magenta = 0; $red = 0
     $w = [Math]::Min(103, $Bmp.Width); $h = [Math]::Min(64, $Bmp.Height)
     for ($y = 24; $y -lt $h; $y++) {
         for ($x = 34; $x -lt $w; $x++) {
             $p = $Bmp.GetPixel($x, $y)
             if ($p.B -gt 150 -and $p.G -gt 80 -and $p.R -lt 60) { $blue++ }
             if ($p.R -gt 150 -and $p.B -gt 150 -and $p.G -lt 90) { $magenta++ }
+            if ($p.R -gt 150 -and $p.G -lt 120 -and $p.B -lt 120) { $red++ }
         }
     }
-    return @{ Blue = $blue; Magenta = $magenta }
+    return @{ Blue = $blue; Magenta = $magenta; Red = $red }
 }
 
 function Measure-FillBrightness([System.Drawing.Bitmap]$Bmp) {
@@ -208,7 +209,7 @@ function Measure-FillBrightness([System.Drawing.Bitmap]$Bmp) {
 }
 
 function Measure-TextPixels([System.Drawing.Bitmap]$Bmp, [int]$X0, [int]$Y0, [int]$X1, [int]$Y1) {
-    $grey = 0; $magenta = 0; $blue = 0
+    $grey = 0; $magenta = 0; $blue = 0; $red = 0
     $xEnd = [Math]::Min($X1, $Bmp.Width)
     $yEnd = [Math]::Min($Y1, $Bmp.Height)
     for ($y = $Y0; $y -lt $yEnd; $y++) {
@@ -218,9 +219,10 @@ function Measure-TextPixels([System.Drawing.Bitmap]$Bmp, [int]$X0, [int]$Y0, [in
                 [Math]::Abs($p.R - $p.G) -lt 24 -and [Math]::Abs($p.G - $p.B) -lt 28) { $grey++ }
             if ($p.R -gt 150 -and $p.B -gt 150 -and $p.G -lt 90) { $magenta++ }
             if ($p.B -gt 150 -and $p.G -gt 80 -and $p.R -lt 60) { $blue++ }
+            if ($p.R -gt 150 -and $p.G -lt 120 -and $p.B -lt 120) { $red++ }
         }
     }
-    return @{ Grey = $grey; Magenta = $magenta; Blue = $blue }
+    return @{ Grey = $grey; Magenta = $magenta; Blue = $blue; Red = $red }
 }
 
 if (-not $SkipWidget) {
@@ -240,6 +242,7 @@ if (-not $SkipWidget) {
         $m = Measure-Battery $bmp
         Check "idle fill is neon blue" ($m.Blue -gt 600) "blue=$($m.Blue)"
         Check "idle fill is not magenta" ($m.Magenta -lt 60) "magenta=$($m.Magenta)"
+        Check "idle fill is not red" ($m.Red -lt 60) "red=$($m.Red)"
         Check "idle hides ETA row" ($bmp.Height -le 70) "height=$($bmp.Height)"
         $t = Measure-TextPixels $bmp 125 44 200 58
         Check "idle source word is magenta" ($t.Magenta -gt 20) "magenta=$($t.Magenta), grey=$($t.Grey)"
@@ -277,6 +280,34 @@ if (-not $SkipWidget) {
         $bmp.Dispose()
     }
 
+    # Low battery, off the dock: red fill and percentage, no extra text.
+    Write-FakeFeed -Level 10 -Charging 0 -Source "wireless" -Eta -1
+    Start-Sleep -Seconds 5
+    $bmp = Get-WidgetShot
+    Check "low-battery widget visible" ($null -ne $bmp)
+    if ($bmp) {
+        $m = Measure-Battery $bmp
+        Check "low battery fill is red" ($m.Red -gt 150) "red=$($m.Red)"
+        Check "low battery hides blue fill" ($m.Blue -lt 60) "blue=$($m.Blue)"
+        Check "low battery hides magenta fill" ($m.Magenta -lt 60) "magenta=$($m.Magenta)"
+        Check "low battery hides ETA row" ($bmp.Height -le 70) "height=$($bmp.Height)"
+        $l = Measure-TextPixels $bmp 140 18 200 40
+        Check "low percentage is red" ($l.Red -gt 15) "red=$($l.Red)"
+        $bmp.Dispose()
+    }
+
+    # Stale while charging: the charging look and ETA must not appear either.
+    Write-FakeFeed -Level 50 -Charging 1 -Source "dock" -Eta 24 -AgeSeconds 600
+    Start-Sleep -Seconds 5
+    $bmp = Get-WidgetShot
+    Check "stale charging widget visible" ($null -ne $bmp)
+    if ($bmp) {
+        $m = Measure-Battery $bmp
+        Check "stale charging hides magenta fill" ($m.Magenta -lt 80) "magenta=$($m.Magenta)"
+        Check "stale charging hides ETA row" ($bmp.Height -le 70) "height=$($bmp.Height)"
+        $bmp.Dispose()
+    }
+
     Write-FakeFeed -Level 50 -Charging 1 -Source "dock" -Eta 24
     Start-Sleep -Seconds 5
     $bmp = Get-WidgetShot
@@ -285,6 +316,7 @@ if (-not $SkipWidget) {
         $m = Measure-Battery $bmp
         Check "charging fill is magenta" ($m.Magenta -gt 600) "magenta=$($m.Magenta)"
         Check "charging hides cyan fill" ($m.Blue -lt 200) "blue=$($m.Blue)"
+        Check "charging hides red fill" ($m.Red -lt 60) "red=$($m.Red)"
         Check "charging shows ETA row" ($bmp.Height -ge 72) "height=$($bmp.Height)"
         $eta = 0
         for ($y = 60; $y -lt $bmp.Height; $y++) {

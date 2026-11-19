@@ -31,6 +31,11 @@ FontColor1_Neon=0,202,255,255
 FontColor2_Neon=255,43,255,255
 NeonBlue=0,149,255,255
 
+; Low-battery warning: a vivid coral red that still reads as part of the
+; neon set. Used only when the level is at or below #LowBatteryPercent# and
+; the mouse is off the dock.
+LowBattery=255,64,64,255
+
 
 ; --- ISP Speed Limits (Bits per second) ---
 ; 100 Mbps = 100,000,000 bits

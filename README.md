@@ -254,6 +254,8 @@ It reads `status.json` every second and shows:
 - a cyan lightning bolt with a soft white glow, pulsing while charging
 - a charging breath: the magenta fill dims and brightens on the same clock,
   with a faint magenta wash inside the body
+- below 15 % off the dock, the fill and percentage turn coral red
+  (`#LowBattery#`); a docked mouse keeps the magenta charging look
 - a dead feed is visible, not frozen: after 90 s without a write the fill
   disappears and the text changes to `--` / `NO SIGNAL`. The next valid write
   restores the real meters (and the charging look if it is still charging).
@@ -355,6 +357,12 @@ These cost real debugging time; they are documented in the skin comments too.
   It reads the file itself instead of adding a sixth capture group: Rainmeter
   rejected the longer WebParser expression at runtime even though it was
   valid PCRE. Keep the proven `measureStatus` regex alone.
+- **Avoid `&&` in skin expressions.** On this Rainmeter build
+  `(level >= 0 && level <= 15)` evaluated true at level 50, and a four-clause
+  `IfCondition` showed the ETA during a stale feed. The widget therefore
+  encodes freshness, charging and low-battery as nested ternaries on 0/1
+  helper measures, and tests a single equality. Do not "simplify" them back
+  to `&&`.
 - **Rainmeter does not reload a skin when its `.ini` is replaced from outside
   the app.** The old layout keeps running until Rainmeter restarts, which
   makes a correct change look broken. `deploy.ps1` restarts it for this

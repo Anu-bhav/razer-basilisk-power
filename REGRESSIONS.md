@@ -45,6 +45,15 @@ charging code.
   own line **only while charging**, never at 100 %.
 - No boxed/histogram look, no divider, no extra labels.
 - The charging pulse animates the fill, bolt and halo; idle is static.
+- **Low battery (≤ 15 %, off the dock) turns the fill and percentage red.**
+  Charging takes precedence and stays magenta. The threshold lives in
+  `#LowBatteryPercent#`.
+- **Do not use `&&` inside a skin Formula.** It evaluated
+  `(level >= 0 && level <= 15)` as true at level 50 on Rainmeter 4.5.28.
+  Nested ternaries (see `[cState]` / `[cEtaVisible]`) are the supported form.
+- The charging look has **one owner**: `[cState]`. `[measureCharging]` no
+  longer carries `IfMatch` bangs, because those could re-show magenta meters
+  over a stale feed.
 - A dead feed may show `--` / `NO SIGNAL`, but **recovery must restore the real
   meters on the next fresh write** (test both directions). `verify.ps1` writes
   an epoch 10 minutes in the past for the stale case, then a current one.
