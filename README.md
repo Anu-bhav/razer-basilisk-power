@@ -12,18 +12,13 @@
 ![license](https://img.shields.io/badge/license-MIT-44D62C)
 ![synapse](https://img.shields.io/badge/Synapse-not%20required-FF2BFF)
 
-<table>
-  <tr>
-    <td align="center"><img src="docs/widget.png" alt="Basilisk Power widget, wireless at 95%" width="209"></td>
-    <td align="center"><img src="docs/widget-charging.png" alt="Basilisk Power widget, charging at 42% with a 53 minute ETA" width="209"></td>
-  </tr>
-  <tr>
-    <td align="center"><sub>Idle — wireless</sub></td>
-    <td align="center"><sub>Charging — docked with ETA</sub></td>
-  </tr>
-</table>
-
-<sub>The bundled Rainmeter widget, captured at native size.</sub>
+<p align="center">
+  <img src="docs/widget.png" alt="Basilisk Power widget, wireless at 95%" width="209">
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="docs/widget-charging.png" alt="Basilisk Power widget, charging at 42% with a 53 minute ETA" width="209">
+  <br>
+  <sub>Idle — wireless &nbsp;·&nbsp; Charging — docked with ETA</sub>
+</p>
 
 </div>
 
