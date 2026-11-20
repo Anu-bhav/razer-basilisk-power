@@ -14,10 +14,12 @@
 
 <p align="center">
   <img src="docs/widget.png" alt="Basilisk Power widget, wireless at 95%" width="209">
-  &nbsp;&nbsp;&nbsp;&nbsp;
+  &nbsp;&nbsp;
   <img src="docs/widget-charging.png" alt="Basilisk Power widget, charging at 42% with a 53 minute ETA" width="209">
+  &nbsp;&nbsp;
+  <img src="docs/widget-charging.gif" alt="Animated charging pulse: the magenta fill, bolt and halo brighten and dim" width="209">
   <br>
-  <sub>Idle — wireless &nbsp;·&nbsp; Charging — docked with ETA</sub>
+  <sub>Idle — wireless &nbsp;·&nbsp; Charging — docked with ETA &nbsp;·&nbsp; Charging pulse (8 s loop)</sub>
 </p>
 
 </div>
@@ -204,12 +206,6 @@ It re-reads `status.json` **every 2 s** (deliberately literal
 
 Colours come from the shared Simplic theme: neon blue for the idle fill and
 percentage, magenta for charging and the source word, white text, MesloLGS NF.
-
-<p align="center">
-  <img src="docs/widget-charging.gif" alt="Animated charging pulse: the magenta fill, bolt and halo brighten and dim" width="209">
-  <br>
-  <sub>One full charging cycle — the fill, bolt and halo pulse over 8 s.</sub>
-</p>
 
 > **Geometry is frozen.** Do not change any `X=`/`Y=` value — read
 > [`skin/LAYOUT.md`](skin/LAYOUT.md) before touching the file.
