@@ -39,8 +39,9 @@ skin. MIT licensed.
 | **`led-picker`** | OpenRGB-style colour wheel with a separate colour for the mouse and the dock |
 | **Rainmeter skin** | A compact matching widget fed by `status.json` |
 
-All four share one HID library and one data folder. The tray is the long-running
-process; the CLI and picker open the hardware only when needed.
+The tray, CLI and picker share one HID library; the skin consumes the feed they
+write. The tray is the long-running process; the CLI and picker open the
+hardware only when needed.
 
 ## Contents
 
