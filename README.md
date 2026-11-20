@@ -10,6 +10,7 @@
 ![tests](https://img.shields.io/badge/tests-61%20passing-44D62C)
 ![sources](https://img.shields.io/badge/sources-wired%20%7C%20dongle%20%7C%20dock-44D62C)
 ![license](https://img.shields.io/badge/license-MIT-44D62C)
+[![release](https://img.shields.io/github/v/release/Anu-bhav/razer-basilisk-power?color=44D62C&label=release)](https://github.com/Anu-bhav/razer-basilisk-power/releases/latest)
 ![synapse](https://img.shields.io/badge/Synapse-not%20required-FF2BFF)
 
 <p align="center">
@@ -49,8 +50,34 @@ The tray, CLI and picker share one HID library; the skin consumes the feed they
 write. The tray is the long-running process; the CLI and picker open the
 hardware only when needed.
 
+## Download
+
+Prebuilt Windows x86_64 binaries are attached to every
+[release](https://github.com/Anu-bhav/razer-basilisk-power/releases/latest).
+They are standalone executables — no Rust toolchain, no installer, no extra
+DLLs.
+
+| Binary | Purpose | Direct download |
+| --- | --- | --- |
+| `basilisk-power.exe` | Tray app (the main program) | [Download](https://github.com/Anu-bhav/razer-basilisk-power/releases/latest/download/basilisk-power.exe) |
+| `basilisk-power-cli.exe` | Battery + LED command line tool | [Download](https://github.com/Anu-bhav/razer-basilisk-power/releases/latest/download/basilisk-power-cli.exe) |
+| `led-picker.exe` | Mouse + dock colour picker | [Download](https://github.com/Anu-bhav/razer-basilisk-power/releases/latest/download/led-picker.exe) |
+
+Also attached: `BasiliskPower-1.0.1-win64.zip` with all three executables and the
+Rainmeter skin, plus `SHA256SUMS.txt` for verification:
+
+```powershell
+Get-FileHash .\basilisk-power.exe, .\basilisk-power-cli.exe, .\led-picker.exe -Algorithm SHA256
+```
+
+Each executable is built from the tagged commit, so `--version` and the tray
+menu report the same build hash. To install manually, put the three `.exe` files
+in `%LOCALAPPDATA%\BasiliskPower` and start `basilisk-power.exe`; the skin can be
+copied from the zip or installed with `deploy.ps1`.
+
 ## Contents
 
+- [Download](#download)
 - [Quick start](#quick-start)
 - [Components](#components)
 - [Battery features](#battery-features)
@@ -70,6 +97,9 @@ hardware only when needed.
 - [Credits](#credits)
 
 ## Quick start
+
+If you just want to run it, grab a binary from [Download](#download). The steps
+below build from source.
 
 Requirements: Windows 10/11, and — for building — WSL (or Linux) with a Rust
 toolchain and the `x86_64-pc-windows-gnu` target. Rainmeter is optional.
