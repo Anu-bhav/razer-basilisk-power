@@ -12,9 +12,18 @@
 ![license](https://img.shields.io/badge/license-MIT-44D62C)
 ![synapse](https://img.shields.io/badge/Synapse-not%20required-FF2BFF)
 
-<img src="docs/widget.png" alt="Basilisk Power Rainmeter widget showing 97% and WIRELESS" width="200">
+<table>
+  <tr>
+    <td align="center"><img src="docs/widget.png" alt="Basilisk Power widget, wireless at 95%" width="209"></td>
+    <td align="center"><img src="docs/widget-charging.png" alt="Basilisk Power widget, charging at 42% with a 53 minute ETA" width="209"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Idle — wireless</sub></td>
+    <td align="center"><sub>Charging — docked with ETA</sub></td>
+  </tr>
+</table>
 
-<sub>The bundled Rainmeter widget — live battery fill, source word and charging ETA.</sub>
+<sub>The bundled Rainmeter widget, captured at native size.</sub>
 
 </div>
 
@@ -200,6 +209,12 @@ It re-reads `status.json` **every 2 s** (deliberately literal
 
 Colours come from the shared Simplic theme: neon blue for the idle fill and
 percentage, magenta for charging and the source word, white text, MesloLGS NF.
+
+<p align="center">
+  <img src="docs/widget-charging.gif" alt="Animated charging pulse: the magenta fill, bolt and halo brighten and dim" width="209">
+  <br>
+  <sub>One full charging cycle — the fill, bolt and halo pulse over 8 s.</sub>
+</p>
 
 > **Geometry is frozen.** Do not change any `X=`/`Y=` value — read
 > [`skin/LAYOUT.md`](skin/LAYOUT.md) before touching the file.
