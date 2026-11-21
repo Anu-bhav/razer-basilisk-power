@@ -17,6 +17,11 @@ const RETURN_IDLE: Duration = Duration::from_secs(60);
 #[derive(Debug, Default)]
 pub struct WakeRetry {
     failures: u32,
+    /// Consecutive failures since the last success. Unlike `failures` (the
+    /// backoff schedule) this is not cleared by user-input resets, so a
+    /// wedged handle is detected as a sustained failure streak rather than
+    /// waiting for the backoff clock to run out mid-usage.
+    consecutive_failures: u32,
     last_attempt: Option<Instant>,
 }
 
@@ -33,15 +38,23 @@ impl WakeRetry {
         if success {
             *self = Self::default();
         } else {
+            self.consecutive_failures = self.consecutive_failures.saturating_add(1);
             self.failures = self.failures.saturating_add(1);
             self.last_attempt = Some(now);
         }
     }
 
     /// Forget the backoff but keep the attempt time, so a retry still waits
-    /// for fresh input.
+    /// for fresh input. The consecutive-failure streak is deliberately left
+    /// alone: a user-input reset means "the user is back", not "the handle is
+    /// healthy", so the escalation counter keeps counting.
     pub fn reset_backoff(&mut self) {
         self.failures = 0;
+    }
+
+    /// Consecutive failures since the last success; 0 while healthy.
+    pub fn consecutive_failures(&self) -> u32 {
+        self.consecutive_failures
     }
 
     /// True once the failure backoff has grown to its maximum (5 s → 10 s →
@@ -101,6 +114,30 @@ mod tests {
         let t = Instant::now();
         let r = WakeRetry::default();
         assert!(!r.is_backoff_exhausted());
+    }
+
+    #[test]
+    fn consecutive_failures_accumulate_and_clear_on_success() {
+        let t = Instant::now();
+        let mut r = WakeRetry::default();
+        assert_eq!(r.consecutive_failures(), 0);
+        r.record(t, false);
+        r.record(t, false);
+        assert_eq!(r.consecutive_failures(), 2);
+        r.record(t, true);
+        assert_eq!(r.consecutive_failures(), 0);
+    }
+
+    #[test]
+    fn user_input_backoff_reset_keeps_the_failure_streak() {
+        let t = Instant::now();
+        let mut r = WakeRetry::default();
+        r.record(t, false);
+        r.record(t, false);
+        assert_eq!(r.consecutive_failures(), 2);
+        // A user-input reset clears the backoff clock but not the streak.
+        r.reset_backoff();
+        assert_eq!(r.consecutive_failures(), 2);
     }
 
     #[test]

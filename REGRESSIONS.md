@@ -31,10 +31,12 @@ charging code.
   "no reading", never print or apply it as a real value.
 - **A mouse that stops answering after a long idle / sleep must recover
   automatically.** After the wake backoff schedule is exhausted with persistent
-  failure, the tray performs a full HID handle reset (close + reopen) and forces
-  a fresh read; the user should not have to physically replug the dock. The
-  manual *Reconnect devices* menu item still works and is the faster path when
-  the user already knows the dock was re-plugged.
+  failure, **or** after a sustained streak of failed wake retries
+  (`WAKE_RESET_AFTER_FAILURES`), the tray performs a full HID handle reset
+  (close + reopen) and forces a fresh read; the user should not have to
+  physically replug the dock. The manual *Reconnect devices* menu item still
+  works and is the faster path when the user already knows the dock was
+  re-plugged.
 
 ## Feed
 

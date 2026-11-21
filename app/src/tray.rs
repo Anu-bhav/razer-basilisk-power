@@ -46,6 +46,9 @@ const CHARGING_CONFIRM_READS: u8 = 2;
 /// While charging, ask only for the charging flag on the fast loop so a
 /// lift-off is noticed in seconds instead of at the next battery read.
 const CHARGE_PROBE_INTERVAL: Duration = Duration::from_secs(5);
+/// Consecutive failed wake retries (after real user input) that trigger the
+/// automatic full HID handle reset.
+const WAKE_RESET_AFTER_FAILURES: u32 = 3;
 /// Window of level samples used for the time-to-full estimate.
 const CHARGE_HISTORY_WINDOW: Duration = Duration::from_secs(45 * 60);
 
@@ -559,6 +562,23 @@ impl TrayApp {
                             info!(
                                 "{}: wake retries exhausted, resetting HID handles",
                                 device.name
+                            );
+                            manager.reset();
+                            force_refresh = true;
+                        }
+                        // Escalate on a sustained failure streak instead of
+                        // relying only on the backoff clock: user activity
+                        // resets the backoff between attempts, which would
+                        // otherwise keep postponing the reset forever while the
+                        // handle stays wedged.
+                        if retried_by_wake
+                            && device.stale
+                            && device.retry.consecutive_failures() >= WAKE_RESET_AFTER_FAILURES
+                        {
+                            info!(
+                                "{}: {} consecutive failed wake retries, resetting HID handles",
+                                device.name,
+                                device.retry.consecutive_failures()
                             );
                             manager.reset();
                             force_refresh = true;
