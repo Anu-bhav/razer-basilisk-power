@@ -29,6 +29,12 @@ charging code.
   0 is the working path.
 - **The dock brightness read can answer 0 while the LEDs are lit.** Treat 0 as
   "no reading", never print or apply it as a real value.
+- **A mouse that stops answering after a long idle / sleep must recover
+  automatically.** After the wake backoff schedule is exhausted with persistent
+  failure, the tray performs a full HID handle reset (close + reopen) and forces
+  a fresh read; the user should not have to physically replug the dock. The
+  manual *Reconnect devices* menu item still works and is the faster path when
+  the user already knows the dock was re-plugged.
 
 ## Feed
 

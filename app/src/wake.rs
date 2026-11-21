@@ -44,6 +44,14 @@ impl WakeRetry {
         self.failures = 0;
     }
 
+    /// True once the failure backoff has grown to its maximum (5 s → 10 s →
+    /// 20 s → 40 s → 80 s → 120 s). Callers use this to decide that a device
+    /// which keeps failing through its backoff window may have a wedged HID
+    /// handle and deserves a full reset rather than further retries.
+    pub fn is_backoff_exhausted(&self) -> bool {
+        self.gap() >= RETRY_GAP_MAX
+    }
+
     fn gap(&self) -> Duration {
         let shift = self.failures.saturating_sub(1).min(16);
         (RETRY_GAP_MIN * (1 << shift)).min(RETRY_GAP_MAX)
@@ -86,6 +94,32 @@ mod tests {
 
     fn secs(s: u64) -> Duration {
         Duration::from_secs(s)
+    }
+
+    #[test]
+    fn backoff_is_not_exhausted_before_any_failure() {
+        let t = Instant::now();
+        let r = WakeRetry::default();
+        assert!(!r.is_backoff_exhausted());
+    }
+
+    #[test]
+    fn backoff_becomes_exhausted_only_after_repeated_failures() {
+        let t = Instant::now();
+        let mut r = WakeRetry::default();
+        assert!(!r.is_backoff_exhausted());
+        r.record(t, false);
+        assert!(!r.is_backoff_exhausted());
+        r.record(t, false);
+        r.record(t, false);
+        r.record(t, false);
+        r.record(t, false);
+        assert!(!r.is_backoff_exhausted());
+        // Sixth failure: the backoff reaches its 120 s cap and is exhausted.
+        r.record(t, false);
+        assert!(r.is_backoff_exhausted());
+        r.reset_backoff();
+        assert!(!r.is_backoff_exhausted());
     }
 
     #[test]

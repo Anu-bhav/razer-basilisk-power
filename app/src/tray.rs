@@ -543,11 +543,26 @@ impl TrayApp {
                     let wake_retry = device.stale && device.retry.due(now, input.last_input);
                     if poll_due || connected_devices.contains(&id) || needs_first_read || wake_retry
                     {
+                        let retried_by_wake = wake_retry;
                         read_battery(&mut manager, id, device, options, now);
                         device.retry.record(now, !device.stale);
                         check_full(device, &notify, &notifications_enabled);
                         ui_changed = true;
                         read_this_round = true;
+                        // Self-heal: a wake retry only fires after real user
+                        // input, so reaching the end of the backoff schedule
+                        // with the same handle means the open HID path is wedged
+                        // (sleep / idle / power-cycle without a replug). Reset
+                        // the handles and force a fresh read instead of burning
+                        // the backoff forever.
+                        if retried_by_wake && device.stale && device.retry.is_backoff_exhausted() {
+                            info!(
+                                "{}: wake retries exhausted, resetting HID handles",
+                                device.name
+                            );
+                            manager.reset();
+                            force_refresh = true;
+                        }
                     }
                 }
 

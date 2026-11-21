@@ -79,6 +79,37 @@ comparison; it breaks across midnight and time zones.
 - The mouse's own receiver and the dock relay behave differently: when the
   mouse is docked, colour writes go through the dock (`0x00A4`).
 
+## The mouse does not come back after going idle / sleeping
+
+Symptom: after a long idle period (or after the mouse slept), using the mouse
+no longer shows up in the tray or widget. The only reliable recovery is to
+unplug and replug the dock — even switching the mouse off and on does not help.
+
+Two independent faults were addressed:
+
+1. **Windows USB selective suspend** (was enabled on this machine) puts idle
+   USB HID interfaces — including the Mouse Dock Pro relay — into a low-power
+   state. The relay then stops answering feature reports until a physical
+   replug. Disable it:
+
+   ```powershell
+   # via script in the repo:
+   pwsh -File scripts\disable-usb-selective-suspend.ps1
+   # or directly:
+   powercfg /SETACVALUEINDEX SCHEME_CURRENT 2a737441-1930-4402-8d77-b2bebba308a3 48e6b7a6-50f5-4782-a5d4-53bb8f07e226 0
+   powercfg /SETDCVALUEINDEX SCHEME_CURRENT 2a737441-1930-4402-8d77-b2bebba308a3 48e6b7a6-50f5-4782-a5d4-53bb8f07e226 0
+   powercfg /SETACTIVE SCHEME_CURRENT
+   ```
+
+2. **The tray's own wake-retry backoff could run to its cap without a full HID
+   handle reset.** The tray now resets and reopens the HID handles
+   automatically once a wake-triggered retry has exhausted the backoff schedule
+   with a persistent failure, so a wedged handle heals itself instead of waiting
+   for a manual *Reconnect devices*.
+
+If the symptom persists after both fixes, use *Reconnect devices* from the tray
+menu — that performs the same handle reset on demand.
+
 ## The time estimates look odd
 
 - **Time to full** appears only while charging and only for a positive estimate.
