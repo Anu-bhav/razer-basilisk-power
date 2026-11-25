@@ -235,6 +235,11 @@ impl BatterySession {
         let charging = protocol::get_charging_status(&self.hid, self.dev.transaction_id)?;
         Ok(BatteryInfo { level, charging })
     }
+
+    /// Query the Mouse Dock Pro's RF link heartbeat.
+    pub fn link_state(&self) -> error::Result<bool> {
+        protocol::get_dock_link_state(&self.hid)
+    }
 }
 
 /// Scan all connected devices and return battery info for each.

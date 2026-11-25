@@ -3,7 +3,7 @@ use log::{debug, warn};
 use std::collections::{HashMap, HashSet};
 
 use crate::controller::DeviceController;
-use crate::devices::{DeviceInfo, RAZER_DEVICE_LIST};
+use crate::devices::{DeviceInfo, RAZER_DEVICE_LIST, RAZER_MOUSE_DOCK_PRO};
 
 pub struct DeviceManager {
     api: Option<HidApi>,
@@ -156,6 +156,32 @@ impl DeviceManager {
                 None
             }
         }
+    }
+
+    /// Ask the Mouse Dock Pro whether its RF link to the paired mouse is up.
+    ///
+    /// Returns `None` when the device is not the dock (or its handle is not
+    /// open). A heartbeat failure marks the handle stale so the next fetch
+    /// reopens it; a "link down" answer is a healthy handle and does not.
+    pub fn dock_link_state(&mut self, id: u32) -> Option<Result<bool, Box<dyn std::error::Error>>> {
+        let pid = self
+            .device_controllers
+            .iter()
+            .find(|controller| controller.pid as u32 == id)?
+            .pid;
+        if pid != RAZER_MOUSE_DOCK_PRO.pid {
+            return None;
+        }
+
+        let result = self
+            .device_controllers
+            .iter()
+            .find(|controller| controller.pid == pid)?
+            .dock_link_state();
+        if result.is_err() {
+            self.stale.insert(pid);
+        }
+        Some(result)
     }
 
     /// Ask only for the charging flag on the fast loop.

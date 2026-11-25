@@ -7,7 +7,7 @@
 
 ![platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D4?logo=windows&logoColor=white)
 ![rust](https://img.shields.io/badge/Rust-stable-CE422B?logo=rust&logoColor=white)
-![tests](https://img.shields.io/badge/tests-61%20passing-44D62C)
+![tests](https://img.shields.io/badge/tests-69%20passing-44D62C)
 ![sources](https://img.shields.io/badge/sources-wired%20%7C%20dongle%20%7C%20dock-44D62C)
 ![license](https://img.shields.io/badge/license-MIT-44D62C)
 [![release](https://img.shields.io/github/v/release/Anu-bhav/razer-basilisk-power?color=44D62C&label=release)](https://github.com/Anu-bhav/razer-basilisk-power/releases/latest)
@@ -63,7 +63,7 @@ DLLs.
 | `basilisk-power-cli.exe` | Battery + LED command line tool | [Download](https://github.com/Anu-bhav/razer-basilisk-power/releases/latest/download/basilisk-power-cli.exe) |
 | `led-picker.exe` | Mouse + dock colour picker | [Download](https://github.com/Anu-bhav/razer-basilisk-power/releases/latest/download/led-picker.exe) |
 
-Also attached: `BasiliskPower-1.0.1-win64.zip` with all three executables and the
+Also attached: `BasiliskPower-1.0.4-win64.zip` with all three executables and the
 Rainmeter skin, plus `SHA256SUMS.txt` for verification:
 
 ```powershell
@@ -160,6 +160,16 @@ tray menu or run `basilisk-power.exe --install-autostart` once.
 - **0 % glitch guard.** A “successful” 0 % report from the dock relay is an RF
   link blip, not an empty battery — the last known value is kept. Simulated
   runs are exempt, because 0 % there is a deliberate test input.
+- **Dock heartbeat before every read.** The Mouse Dock Pro answers a
+  dock-firmware heartbeat (`00:bf`, transaction `0x3F`) in about 120 ms without
+  touching the RF relay. The tray asks first: if the link is down (mouse
+  asleep, off, or out of range) it marks the reading stale and retries the
+  heartbeat every 5 s instead of spending seconds on RF timeouts. The moment
+  the link returns it reads the battery. This is what makes sleep/wake recovery
+  work even when the user moves the mouse once and then stops.
+- **Bounded HID retries.** A read uses at most 5 tries with 250 ms gaps, and
+  the worker re-enumerates every 2 s, so a slow or sleeping relay cannot block
+  the app long enough to miss a quick dock replug.
 - **Echo-mismatch retries.** The dock often answers with a stale report before
   the mouse's response arrives; reads are retried (like the OpenRazer driver)
   instead of failing.
@@ -178,7 +188,7 @@ tray menu or run `basilisk-power.exe --install-autostart` once.
 - **Menu controls.** Status line, *Refresh now*, *Reconnect devices* (closes
   every HID handle and rescans after a replug or re-pair), *Notifications*
   on/off, *Open log*, *Start with Windows*, *Export diagnostics…*, and a
-  disabled `v1.0.1 (hash)` build line.
+  disabled `v1.0.4 (hash)` build line.
 - **Single instance.** A named mutex is taken *before* the log is opened, so a
   second launch exits quietly without truncating the first instance's log.
 - **Managed autostart.** One `HKCU` Run value (`Basilisk Power`), no shortcut,
@@ -329,6 +339,7 @@ local paths.
 | `--json` | One-shot machine-readable output |
 | `--probe` | Try interface/transaction-id combos per connected PID |
 | `--list` | Enumerate Razer HID entries (VID `0x1532`) |
+| `--link` | Query the Mouse Dock Pro RF-link heartbeat (`UP` / `DOWN`) |
 | `--set-color RRGGBB` | Static LED colour for both targets |
 | `--mouse-color RRGGBB` | Static LED colour for the mouse only |
 | `--dock-color RRGGBB` | Static LED colour for the dock only |
@@ -462,8 +473,8 @@ rollback, and `maintenance.rs` never age-deletes it.
 ## Verifying a change
 
 [`verify.ps1`](verify.ps1) is the regression gate. It builds both workspaces,
-checks `cargo fmt` and clippy in each, runs all **61 tests** (10 in the root
-workspace, 51 in the tray; the tray's tests are cross-compiled and executed
+checks `cargo fmt` and clippy in each, runs all **69 tests** (10 in the root
+workspace, 59 in the tray; the tray's tests are cross-compiled and executed
 natively on Windows), deploys, then checks:
 
 | Check | What it proves |
@@ -489,7 +500,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$stage\verify.ps1"
 invariants behind these checks live in [`REGRESSIONS.md`](REGRESSIONS.md).
 
 Every executable carries the checked-out commit: `--version`, the tray menu and
-the startup log all report `1.0.1 (hash)`. Rebuild and redeploy after a commit
+the startup log all report `1.0.4 (hash)`. Rebuild and redeploy after a commit
 if you rely on that stamp.
 
 ## 2026-11 hardening pass
@@ -517,8 +528,10 @@ commit per fix. The behaviour it locked down:
 These are empirical facts about the Mouse Dock Pro relay channel
 (transaction id `0x1F`, interface 0, usage page 1, usage 2):
 
-1. The first read after opening the dock often needs **~9 retries** with a
-   ~120 ms gap before the echo matches (stale echoes, status `0x02`).
+1. The first read after opening the dock often needs several retries with a
+   ~120 ms gap before the echo matches (stale echoes, status `0x02`). The tray
+   keeps a bounded 5-try budget; the heartbeat pre-check means a sleeping mouse
+   does not consume it.
 2. The relayed **charging flag can lag** — correct within a few seconds of a
    dock/undock here, but not instantaneous. A failed read returns an error
    rather than a wrong value.

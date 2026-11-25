@@ -32,7 +32,11 @@ use tray_icon::{
 
 /// Fallback poll interval when no device answers (all stale / none present).
 const BATTERY_UPDATE_INTERVAL: Duration = Duration::from_secs(300);
-const DEVICE_FETCH_INTERVAL: Duration = Duration::from_secs(5);
+/// How often the worker re-enumerates HID devices and processes commands.
+/// This also bounds how quickly a dock replug is noticed; keep it short
+/// enough that a quick unplug/replug is not missed, but long enough that the
+/// feed is not rewritten unnecessarily (the feed itself coalesces writes).
+const DEVICE_FETCH_INTERVAL: Duration = Duration::from_secs(2);
 const CONNECTION_DEBOUNCE: Duration = Duration::from_secs(10);
 /// Minimum gap between hover-triggered refreshes, so keeping the cursor on
 /// the icon doesn't hammer the dock's RF relay.
@@ -49,6 +53,20 @@ const CHARGE_PROBE_INTERVAL: Duration = Duration::from_secs(5);
 /// Consecutive failed wake retries (after real user input) that trigger the
 /// automatic full HID handle reset.
 const WAKE_RESET_AFTER_FAILURES: u32 = 3;
+/// While the dock reports its RF link down, ask the heartbeat this often.
+/// The heartbeat is a ~120 ms dock-firmware command that does not touch the
+/// RF relay, so it stays cheap even while the mouse sleeps.
+const LINK_PROBE_INTERVAL: Duration = Duration::from_secs(5);
+/// While the user is away, check the link less often. Returning input forces
+/// a read immediately, so this only bounds background wake-up latency.
+const LINK_PROBE_IDLE_INTERVAL: Duration = Duration::from_secs(15);
+/// Minimum gap between automatic full HID resets for a device that keeps
+/// failing while its RF link is up.
+const RESET_COOLDOWN: Duration = Duration::from_secs(60);
+/// Consecutive "link down" heartbeats before logging that the relay may be
+/// wedged. At the 5 s active probe interval this is about two minutes; a
+/// genuinely sleeping mouse simply wakes to "RF link restored" and clears it.
+const LINK_DOWN_WARN_PROBES: u8 = 24;
 /// Window of level samples used for the time-to-full estimate.
 const CHARGE_HISTORY_WINDOW: Duration = Duration::from_secs(45 * 60);
 
@@ -145,6 +163,22 @@ pub struct MemoryDevice {
     pub battery_level: Option<i32>,
     /// The last read failed (mouse asleep or out of range).
     pub stale: bool,
+    /// Last dock RF-link heartbeat: Some(true) up, Some(false) down.
+    /// `None` means the dock has not answered the heartbeat (or this is not
+    /// a dock), so the normal RF retry path applies.
+    link_state: Option<bool>,
+    /// This device is a Mouse Dock Pro, so its heartbeat is worth retrying
+    /// on a timer even when it did not answer.
+    is_dock: bool,
+    /// When the link heartbeat was last checked.
+    link_checked: Option<Instant>,
+    /// Consecutive "link down" heartbeats, used for one clear log line when
+    /// the dock stays down long enough to look wedged rather than asleep.
+    link_down_probes: u8,
+    link_down_warned: bool,
+    /// Last automatic full HID reset, so a sustained failure does not close
+    /// and reopen the handles on every tick.
+    last_reset: Option<Instant>,
     pub is_charging: bool,
     full_notified: bool,
     reminder: Reminder,
@@ -180,6 +214,12 @@ impl MemoryDevice {
             name,
             battery_level: None,
             stale: false,
+            link_state: None,
+            is_dock: false,
+            link_checked: None,
+            link_down_probes: 0,
+            link_down_warned: false,
+            last_reset: None,
             is_charging: false,
             full_notified: false,
             reminder: Reminder::default(),
@@ -265,6 +305,11 @@ impl MemoryDevice {
             // full read replaces this with a measured slope.
             self.eta_empty_min = self.battery_level.and_then(fallback_discharge_eta);
         }
+    }
+
+    /// True when the dock has explicitly reported that its RF link is down.
+    fn link_is_down(&self) -> bool {
+        self.link_state == Some(false)
     }
 
     /// True while a fast charging-only probe can still teach us something.
@@ -540,48 +585,72 @@ impl TrayApp {
                 system_was_idle = idle_now;
 
                 let poll_due = force_refresh || now >= next_battery_poll;
+                let link_interval = if idle_now {
+                    LINK_PROBE_IDLE_INTERVAL
+                } else {
+                    LINK_PROBE_INTERVAL
+                };
                 let mut read_this_round = false;
+                let mut reset_this_round = false;
                 for (&id, device) in guard.iter_mut() {
+                    // A reset drops every controller, so stop reading this
+                    // round and let the next fetch reopen the handles.
+                    if reset_this_round {
+                        break;
+                    }
                     let needs_first_read = device.battery_level.is_none() && !device.stale;
                     let wake_retry = device.stale && device.retry.due(now, input.last_input);
-                    if poll_due || connected_devices.contains(&id) || needs_first_read || wake_retry
+                    // While the dock says the RF link is down, probe its
+                    // heartbeat on a timer instead of hammering the relay.
+                    // This is what makes recovery work even when the user
+                    // stops moving the mouse after one failed wake attempt.
+                    let link_probe_due = device.stale
+                        && device.is_dock
+                        && device
+                            .link_checked
+                            .is_none_or(|checked| now.duration_since(checked) >= link_interval);
+                    if poll_due
+                        || connected_devices.contains(&id)
+                        || needs_first_read
+                        || wake_retry
+                        || link_probe_due
                     {
-                        let retried_by_wake = wake_retry;
-                        read_battery(&mut manager, id, device, options, now);
-                        device.retry.record(now, !device.stale);
+                        let link_down = read_battery(&mut manager, id, device, options, now);
+                        if link_down {
+                            // The dock answered its heartbeat; a down RF link
+                            // is not an HID failure. Clear the streak so a
+                            // real failure after the mouse wakes starts fresh.
+                            device.retry.clear_failures();
+                        } else {
+                            device.retry.record(now, !device.stale);
+                        }
                         check_full(device, &notify, &notifications_enabled);
                         ui_changed = true;
                         read_this_round = true;
-                        // Self-heal: a wake retry only fires after real user
-                        // input, so reaching the end of the backoff schedule
-                        // with the same handle means the open HID path is wedged
-                        // (sleep / idle / power-cycle without a replug). Reset
-                        // the handles and force a fresh read instead of burning
-                        // the backoff forever.
-                        if retried_by_wake && device.stale && device.retry.is_backoff_exhausted() {
-                            info!(
-                                "{}: wake retries exhausted, resetting HID handles",
-                                device.name
-                            );
-                            manager.reset();
-                            force_refresh = true;
-                        }
-                        // Escalate on a sustained failure streak instead of
-                        // relying only on the backoff clock: user activity
-                        // resets the backoff between attempts, which would
-                        // otherwise keep postponing the reset forever while the
-                        // handle stays wedged.
-                        if retried_by_wake
-                            && device.stale
-                            && device.retry.consecutive_failures() >= WAKE_RESET_AFTER_FAILURES
+                        // Self-heal a wedged handle when the link itself is
+                        // up but the relay keeps failing. A link-down answer
+                        // is a healthy dock with a sleeping mouse: resetting
+                        // the handle would not help and would disturb the LEDs.
+                        // The cooldown stops a sustained failure from closing
+                        // and reopening the handles on every tick.
+                        let reset_due = device
+                            .last_reset
+                            .is_none_or(|t| now.duration_since(t) >= RESET_COOLDOWN);
+                        if device.stale
+                            && !device.link_is_down()
+                            && reset_due
+                            && (device.retry.is_backoff_exhausted()
+                                || device.retry.consecutive_failures() >= WAKE_RESET_AFTER_FAILURES)
                         {
                             info!(
-                                "{}: {} consecutive failed wake retries, resetting HID handles",
+                                "{}: {} failed reads, resetting HID handles",
                                 device.name,
                                 device.retry.consecutive_failures()
                             );
+                            device.last_reset = Some(now);
                             manager.reset();
                             force_refresh = true;
+                            reset_this_round = true;
                         }
                     }
                 }
@@ -1049,8 +1118,57 @@ fn read_battery(
     device: &mut MemoryDevice,
     options: Options,
     now: Instant,
-) {
+) -> bool {
     let simulated = options.simulate_battery;
+
+    // The Mouse Dock Pro knows whether its RF link is up without touching the
+    // relay. Ask first: a sleeping/off mouse used to cost two full RF retry
+    // cycles per read, which starved the worker and made a quick dock replug
+    // invisible. A down link is a healthy dock, not a wedged handle.
+    if simulated.is_none() {
+        match manager.dock_link_state(id) {
+            Some(Ok(false)) => {
+                device.is_dock = true;
+                device.link_down_probes = device.link_down_probes.saturating_add(1);
+                if !device.stale {
+                    info!("{}: RF link down (mouse asleep or off)", device.name);
+                }
+                if device.link_down_probes >= LINK_DOWN_WARN_PROBES && !device.link_down_warned {
+                    device.link_down_warned = true;
+                    warn!(
+                        "{}: RF link still down; if the mouse is on, the dock relay may be wedged",
+                        device.name
+                    );
+                }
+                device.link_state = Some(false);
+                device.link_checked = Some(now);
+                device.stale = true;
+                // A relayed charging flag is meaningless without the link.
+                device.apply_charging_reading(None);
+                // The heartbeat was answered: this is not an RF read failure.
+                return true;
+            }
+            Some(Ok(true)) => {
+                device.is_dock = true;
+                if device.link_state == Some(false) {
+                    info!("{}: RF link restored", device.name);
+                }
+                device.link_state = Some(true);
+                device.link_checked = Some(now);
+                device.link_down_probes = 0;
+                device.link_down_warned = false;
+            }
+            Some(Err(e)) => {
+                device.is_dock = true;
+                debug!("{}: dock link heartbeat failed: {e}", device.name);
+                device.link_state = None;
+                device.link_checked = Some(now);
+            }
+            None => {
+                device.is_dock = false;
+            }
+        }
+    }
 
     // Charging is read first, while the dock's RF relay is idle. Reading the
     // battery first leaves the link busy and the charging read then fails with
@@ -1089,6 +1207,8 @@ fn read_battery(
             }
             device.battery_level = Some(level);
             device.stale = false;
+            device.link_down_probes = 0;
+            device.link_down_warned = false;
         }
         None => {
             if !device.stale {
@@ -1221,6 +1341,8 @@ fn read_battery(
         device.eta_empty_min = estimate_discharge(&device.discharge_history, level)
             .or_else(|| fallback_discharge_eta(level));
     }
+
+    false
 }
 
 /// Time until empty from the discharge samples, in minutes.

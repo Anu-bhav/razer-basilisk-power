@@ -6,8 +6,12 @@ use std::time::Duration;
 
 use crate::devices::RAZER_DEVICE_LIST;
 
-const MAX_TRIES_SEND: u8 = 10;
-const TIME_BETWEEN_SEND: Duration = Duration::from_millis(500);
+/// Keep the whole read bounded: the worker also watches for device
+/// re-enumeration, and a 10 × 500 ms retry storm used to block it long
+/// enough to miss a dock replug. Five tries matches the shared protocol
+/// implementation and still rides out a busy RF link.
+const MAX_TRIES_SEND: u8 = 5;
+const TIME_BETWEEN_SEND: Duration = Duration::from_millis(250);
 /// The Mouse Dock Pro relay usually answers within a few tens of ms once the
 /// RF link to the mouse is ready, so echo mismatches are retried on a shorter
 /// gap than busy/timeout replies.
@@ -96,6 +100,25 @@ impl RazerReport {
     }
 }
 
+/// Dock link heartbeat request.
+///
+/// Transaction `0x3F` addresses the dock firmware itself; `0x1F` is the RF
+/// relay channel used for battery/charging commands.
+fn dock_link_request() -> RazerReport {
+    let mut request = RazerReport::new();
+    request.status = RazerReport::STATUS_NEW_COMMAND;
+    request.transaction_id = 0x3F;
+    request.data_size = 0x1F;
+    request.command_class = 0x00;
+    request.command_id = 0xBF;
+    request
+}
+
+/// `arguments[1]` is the dock's availability flag: 1 = mouse link live.
+fn link_state_from_report(response: &RazerReport) -> Option<bool> {
+    (response.data_size >= 2).then(|| response.arguments[1] == 1)
+}
+
 #[derive(Debug)]
 pub struct DeviceController {
     pub handle: HidDevice,
@@ -155,6 +178,20 @@ impl DeviceController {
         let response = self.send_payload_with_tries(request, 1)?;
         let charging_status = response.arguments[1] != 0;
         Ok(charging_status)
+    }
+
+    /// Ask the Mouse Dock Pro whether its RF link to the paired mouse is up.
+    ///
+    /// This is a dock-firmware round-trip (`00:bf`, transaction `0x3F`) that
+    /// does not touch the RF relay, so it answers in ~120 ms even while the
+    /// mouse sleeps. The tray uses it to avoid battery reads that would spend
+    /// seconds timing out on a sleeping mouse.
+    pub fn dock_link_state(&self) -> Result<bool, Box<dyn std::error::Error>> {
+        // Two tries ride out a single busy reply without turning the fast
+        // pre-check into another multi-second stall.
+        let response = self.send_payload_with_tries(dock_link_request(), 2)?;
+        link_state_from_report(&response)
+            .ok_or_else(|| "Dock link heartbeat returned no state".into())
     }
 
     pub fn send_payload(
@@ -249,5 +286,41 @@ impl DeviceController {
         }
 
         Ok(report)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dock_link_request_targets_the_dock_firmware() {
+        let mut request = dock_link_request();
+        assert_eq!(request.status, RazerReport::STATUS_NEW_COMMAND);
+        assert_eq!(request.transaction_id, 0x3F);
+        assert_eq!(request.command_class, 0x00);
+        assert_eq!(request.command_id, 0xBF);
+        assert_eq!(request.data_size, 0x1F);
+
+        request.crc = request.calculate_crc();
+        assert!(request.is_valid());
+    }
+
+    #[test]
+    fn dock_link_state_reads_the_availability_flag() {
+        let mut report = RazerReport::new();
+        report.data_size = 2;
+        report.arguments[1] = 1;
+        assert_eq!(link_state_from_report(&report), Some(true));
+
+        report.arguments[1] = 0;
+        assert_eq!(link_state_from_report(&report), Some(false));
+    }
+
+    #[test]
+    fn dock_link_state_rejects_short_responses() {
+        let mut report = RazerReport::new();
+        report.data_size = 1;
+        assert_eq!(link_state_from_report(&report), None);
     }
 }

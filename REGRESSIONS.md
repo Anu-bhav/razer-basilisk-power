@@ -30,13 +30,31 @@ charging code.
 - **The dock brightness read can answer 0 while the LEDs are lit.** Treat 0 as
   "no reading", never print or apply it as a real value.
 - **A mouse that stops answering after a long idle / sleep must recover
-  automatically.** After the wake backoff schedule is exhausted with persistent
-  failure, **or** after a sustained streak of failed wake retries
-  (`WAKE_RESET_AFTER_FAILURES`), the tray performs a full HID handle reset
-  (close + reopen) and forces a fresh read; the user should not have to
-  physically replug the dock. The manual *Reconnect devices* menu item still
-  works and is the faster path when the user already knows the dock was
-  re-plugged.
+  automatically.** The Mouse Dock Pro's `00:bf` / transaction `0x3F` heartbeat
+  says whether its RF link is up without touching the relay. A down link is a
+  healthy dock with a sleeping mouse: the tray marks the reading stale, does
+  **not** spend seconds on RF retries, and re-checks the heartbeat on a timer
+  (5 s active / 15 s idle) until the link returns. This retry is **not** gated
+  on fresh user input, so a single failed wake attempt cannot leave the widget
+  blank until the next mouse movement.
+- **A link-up but unresponsive relay heals itself.** After
+  `WAKE_RESET_AFTER_FAILURES` consecutive failed reads (or an exhausted wake
+  backoff) with the link up, the tray performs a full HID handle reset (close +
+  reopen) and forces a fresh read, at most once per `RESET_COOLDOWN`. This
+  applies to poll, manual and hover reads, not only wake retries. The user
+  should not have to physically replug the dock for the ordinary sleep/wake
+  case. The manual *Reconnect devices* menu item still works and is the faster
+  path when the user already knows the dock was re-plugged.
+- **A dock read must stay bounded.** HID commands use at most 5 tries with
+  250 ms gaps (not 10 × 500 ms), so a sleeping mouse cannot block the worker
+  long enough to miss a quick unplug/replug. The worker re-enumerates devices
+  every 2 s.
+- **A dock whose link stays down while the user is active is surfaced.** The
+  tray logs one clear warning after about two minutes; `basilisk-power-cli
+  --link` reports the same state on demand. If the mouse is demonstrably on and
+  the heartbeat still says down, the dock firmware's RF relay is wedged and
+  only a USB re-enumeration (replug/power-cycle) clears it; no software command
+  is known to reset that relay.
 
 ## Feed
 

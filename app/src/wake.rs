@@ -52,6 +52,17 @@ impl WakeRetry {
         self.failures = 0;
     }
 
+    /// Clear the failure streak without touching the attempt time.
+    ///
+    /// Used when a read was skipped for a reason that is not an RF failure,
+    /// such as the dock reporting that its link is down. The dock answered,
+    /// so the handle is healthy; a later real failure must start a fresh
+    /// streak instead of inheriting old link-down probes.
+    pub fn clear_failures(&mut self) {
+        self.failures = 0;
+        self.consecutive_failures = 0;
+    }
+
     /// Consecutive failures since the last success; 0 while healthy.
     pub fn consecutive_failures(&self) -> u32 {
         self.consecutive_failures
@@ -138,6 +149,21 @@ mod tests {
         // A user-input reset clears the backoff clock but not the streak.
         r.reset_backoff();
         assert_eq!(r.consecutive_failures(), 2);
+    }
+
+    #[test]
+    fn clear_failures_forgets_a_link_down_streak() {
+        let t = Instant::now();
+        let mut r = WakeRetry::default();
+        for _ in 0..6 {
+            r.record(t, false);
+        }
+        assert!(r.is_backoff_exhausted());
+        r.clear_failures();
+        assert_eq!(r.consecutive_failures(), 0);
+        assert!(!r.is_backoff_exhausted());
+        // The last attempt is kept, so a retry still waits for fresh input.
+        assert!(!r.due(t + secs(5), Some(t - secs(1))));
     }
 
     #[test]

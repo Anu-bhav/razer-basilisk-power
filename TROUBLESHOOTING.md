@@ -101,14 +101,35 @@ Two independent faults were addressed:
    powercfg /SETACTIVE SCHEME_CURRENT
    ```
 
-2. **The tray's own wake-retry backoff could run to its cap without a full HID
-   handle reset.** The tray now resets and reopens the HID handles
-   automatically once a wake-triggered retry has exhausted the backoff schedule
-   with a persistent failure, so a wedged handle heals itself instead of waiting
-   for a manual *Reconnect devices*.
+2. **The tray's wake retry waited for fresh user input and its HID retries
+   blocked the worker for seconds.** A failed read used to spend up to
+   10 × 500 ms on the RF relay, then the next retry required input newer than
+   that attempt — so moving the mouse once during the failure could leave the
+   widget blank indefinitely. The tray now:
 
-If the symptom persists after both fixes, use *Reconnect devices* from the tray
-menu — that performs the same handle reset on demand.
+   - asks the dock's own heartbeat (`00:bf`, transaction `0x3F`) first; the
+     dock answers in about 120 ms even while the mouse sleeps and tells us the
+     RF link is down without any RF traffic;
+   - retries that heartbeat on a timer (5 s active, 15 s idle) regardless of
+     new input, and reads the battery the moment the link returns;
+   - bounds RF commands to 5 tries × 250 ms and re-enumerates every 2 s;
+   - resets and reopens the HID handles after 3 consecutive failed reads while
+     the link is up, at most once a minute.
+
+   Check the heartbeat yourself with:
+
+   ```powershell
+   basilisk-power-cli.exe --link
+   ```
+
+   `UP` means the dock sees the mouse; `DOWN` means the mouse is asleep, off or
+   out of range. `DOWN` while the mouse is demonstrably on and moving means the
+   dock firmware's RF relay is wedged — that state has no known software reset
+   and needs the dock USB re-enumerated (replug or power-cycle). The tray logs
+   one warning after about two minutes in that state.
+
+If the symptom persists, use *Reconnect devices* from the tray menu — that
+performs the same handle reset on demand.
 
 ## The time estimates look odd
 

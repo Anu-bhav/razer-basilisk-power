@@ -7,6 +7,7 @@
 //!   basilisk-power-cli --json           one-shot machine-readable output
 //!   basilisk-power-cli --probe          try interface / transaction-id combos per PID
 //!   basilisk-power-cli --list           enumerate Razer (VID 0x1532) HID entries
+//!   basilisk-power-cli --link           query the Mouse Dock Pro RF link heartbeat
 //!   basilisk-power-cli --set-color ...  set static LED colour(s)
 //!   basilisk-power-cli --get-color      read back the stored static colour(s)
 //!   basilisk-power-cli --debug          verbose HID logging
@@ -16,7 +17,7 @@
 mod common;
 
 use std::io::Write as _;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use chrono::Local;
 use razer_battery::devices::custom_device;
@@ -35,6 +36,7 @@ enum Mode {
     Watch,
     Probe,
     List,
+    Link,
     SetColor,
     GetColor,
     WatchLed,
@@ -180,6 +182,32 @@ fn probe() {
     }
     println!();
     println!("Combos marked OK are the ones the app should use.");
+}
+
+fn link() {
+    let dev = custom_device(
+        "Mouse Dock Pro",
+        0x00A4,
+        0,
+        common::USAGE_PAGE,
+        common::USAGE_MOUSE,
+        0x1f,
+    );
+    let started = Instant::now();
+    match BatterySession::new(&dev) {
+        Ok(session) => match session.link_state() {
+            Ok(true) => println!("dock RF link: UP ({} ms)", started.elapsed().as_millis()),
+            Ok(false) => println!(
+                "dock RF link: DOWN - mouse asleep, off, or out of range ({} ms)",
+                started.elapsed().as_millis()
+            ),
+            Err(e) => println!(
+                "dock RF link query failed: {e} ({} ms)",
+                started.elapsed().as_millis()
+            ),
+        },
+        Err(e) => println!("open failed: {e}"),
+    }
 }
 
 fn list() {
@@ -362,6 +390,7 @@ fn help() {
          \x20 --json         one-shot machine-readable output\n\
          \x20 --probe        try interface/transaction-id combos per connected PID\n\
          \x20 --list         enumerate Razer HID entries (VID 0x1532)\n\
+         \x20 --link         query the Mouse Dock Pro RF link heartbeat\n\
          \x20 --set-color RRGGBB     static LED colour for both targets\n\
          \x20 --mouse-color RRGGBB   static LED colour for the mouse only\n\
          \x20 --dock-color RRGGBB    static LED colour for the dock only\n\
@@ -407,6 +436,7 @@ fn main() {
             "--json" => json = true,
             "--probe" => mode = Mode::Probe,
             "--list" => mode = Mode::List,
+            "--link" => mode = Mode::Link,
             "--set-color" => match it.next().as_deref().and_then(lighting::parse_hex_color) {
                 Some(rgb) => {
                     color = Some(rgb);
@@ -492,6 +522,7 @@ fn main() {
         Mode::Watch => watch(interval.map(Duration::from_secs), json),
         Mode::Probe => probe(),
         Mode::List => list(),
+        Mode::Link => link(),
         Mode::GetColor => print_colors(&target),
         Mode::WatchLed => watch_led(),
         Mode::History(window) => {

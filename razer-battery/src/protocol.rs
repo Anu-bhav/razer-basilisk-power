@@ -259,6 +259,22 @@ pub fn get_charging_status(hid: &hidapi::HidDevice, tid: u8) -> Result<bool> {
     Ok(resp[9] != 0)
 }
 
+/// Query the Mouse Dock Pro's RF link heartbeat.
+///
+/// This is a dock-firmware round-trip (`00:bf`, transaction `0x3F`) that does
+/// not touch the RF relay. `arguments[1]` is 1 when a paired mouse is live and
+/// 0 when the dock has no link (mouse asleep, off, or out of range). The tray
+/// uses it to skip battery reads that would otherwise spend seconds timing out
+/// on a sleeping mouse.
+pub fn get_dock_link_state(hid: &hidapi::HidDevice) -> Result<bool> {
+    let report = build_report(0x3F, 0x00, 0xBF, 0x1F);
+    let resp = send_command(hid, &report)?;
+    if resp[5] < 2 {
+        return Err(RazerError::NoData);
+    }
+    Ok(resp[9] == 1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
