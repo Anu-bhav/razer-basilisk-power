@@ -284,7 +284,7 @@ dependencies = [
 
 [[package]]
 name = "basilisk-power"
-version = "1.0.1"
+version = "1.0.4"
 dependencies = [
  "env_logger",
  "hidapi",
