@@ -63,7 +63,7 @@ DLLs.
 | `basilisk-power-cli.exe` | Battery + LED command line tool | [Download](https://github.com/Anu-bhav/razer-basilisk-power/releases/latest/download/basilisk-power-cli.exe) |
 | `led-picker.exe` | Mouse + dock colour picker | [Download](https://github.com/Anu-bhav/razer-basilisk-power/releases/latest/download/led-picker.exe) |
 
-Also attached: `BasiliskPower-1.0.5-win64.zip` with all three executables and the
+Also attached: `BasiliskPower-1.0.6-win64.zip` with all three executables and the
 Rainmeter skin, plus `SHA256SUMS.txt` for verification:
 
 ```powershell
@@ -198,7 +198,7 @@ tray menu or run `basilisk-power.exe --install-autostart` once.
 - **Menu controls.** Status line, *Refresh now*, *Reconnect devices* (closes
   every HID handle and rescans after a replug or re-pair), *Notifications*
   on/off, *Open log*, *Start with Windows*, *Export diagnostics…*, and a
-  disabled `v1.0.5 (hash)` build line.
+  disabled `v1.0.6 (hash)` build line.
 - **Single instance.** A named mutex is taken *before* the log is opened, so a
   second launch exits quietly without truncating the first instance's log.
 - **Managed autostart.** One `HKCU` Run value (`Basilisk Power`), no shortcut,
@@ -510,7 +510,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$stage\verify.ps1"
 invariants behind these checks live in [`REGRESSIONS.md`](REGRESSIONS.md).
 
 Every executable carries the checked-out commit: `--version`, the tray menu and
-the startup log all report `1.0.5 (hash)`. Rebuild and redeploy after a commit
+the startup log all report `1.0.6 (hash)`. Rebuild and redeploy after a commit
 if you rely on that stamp.
 
 ## 2026-11 hardening pass

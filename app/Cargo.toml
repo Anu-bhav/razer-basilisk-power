@@ -1,6 +1,6 @@
 [package]
 name = "basilisk-power"
-version = "1.0.5"
+version = "1.0.6"
 authors = ["va0z-code", "xzeldon <contact@zeldon.ru>", "Anu-bhav"]
 edition = "2021"
 description = "Razer Basilisk V3 Pro battery level in the Windows tray, with Mouse Dock Pro support and low battery notifications. No Synapse required."
