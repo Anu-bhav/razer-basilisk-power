@@ -72,6 +72,14 @@ const RESET_COOLDOWN: Duration = Duration::from_secs(60);
 /// wedged. At the 5 s active probe interval this is about two minutes; a
 /// genuinely sleeping mouse simply wakes to "RF link restored" and clears it.
 const LINK_DOWN_WARN_PROBES: u8 = 24;
+/// Minimum gap between HID reads of the same device, no matter what asked for
+/// one (adaptive poll, hover, manual refresh, charge probe, link probe).
+///
+/// A dock-paired mouse sends its input over the same single RF relay the tray
+/// reads through, so every read steals bandwidth from the cursor. The user
+/// would rather the number update a little later than feel the mouse hitch, so
+/// all triggers are coalesced to at most one read per device per this window.
+const MIN_READ_INTERVAL: Duration = Duration::from_secs(5);
 /// Window of level samples used for the time-to-full estimate.
 const CHARGE_HISTORY_WINDOW: Duration = Duration::from_secs(45 * 60);
 
@@ -184,6 +192,9 @@ pub struct MemoryDevice {
     /// Last automatic full HID reset, so a sustained failure does not close
     /// and reopen the handles on every tick.
     last_reset: Option<Instant>,
+    /// When this device was last read over HID. All read triggers are gated on
+    /// `MIN_READ_INTERVAL` so the dock's RF relay is never monopolised.
+    last_read: Option<Instant>,
     pub is_charging: bool,
     full_notified: bool,
     reminder: Reminder,
@@ -225,6 +236,7 @@ impl MemoryDevice {
             link_down_probes: 0,
             link_down_warned: false,
             last_reset: None,
+            last_read: None,
             is_charging: false,
             full_notified: false,
             reminder: Reminder::default(),
@@ -614,13 +626,23 @@ impl TrayApp {
                         && device
                             .link_checked
                             .is_none_or(|checked| now.duration_since(checked) >= link_interval);
-                    if poll_due
-                        || connected_devices.contains(&id)
-                        || needs_first_read
-                        || wake_retry
-                        || link_probe_due
+                    // Never read a device more often than MIN_READ_INTERVAL,
+                    // whatever asked (poll, hover, manual, link probe). A
+                    // dock-paired mouse shares one RF relay with its input, so
+                    // coalescing every trigger to one read per 5 s is what
+                    // keeps the cursor from hitching.
+                    let read_due = device
+                        .last_read
+                        .is_none_or(|t| now.duration_since(t) >= MIN_READ_INTERVAL);
+                    if read_due
+                        && (poll_due
+                            || connected_devices.contains(&id)
+                            || needs_first_read
+                            || wake_retry
+                            || link_probe_due)
                     {
                         let link_down = read_battery(&mut manager, id, device, options, now);
+                        device.last_read = Some(now);
                         if link_down {
                             // The dock answered its heartbeat; a down RF link
                             // is not an HID failure. Clear the streak so a
@@ -727,7 +749,17 @@ impl TrayApp {
                             if device.stale || !device.wants_charge_probe() {
                                 continue;
                             }
+                            // Same 5 s floor as every other read: the charge
+                            // probe is one HID command, but it still uses the
+                            // dock's shared RF relay.
+                            let read_due = device
+                                .last_read
+                                .is_none_or(|t| now.duration_since(t) >= MIN_READ_INTERVAL);
+                            if !read_due {
+                                continue;
+                            }
                             let raw = manager.probe_charging(id);
+                            device.last_read = Some(now);
                             if device.apply_charging_reading(raw) {
                                 info!(
                                     "{}: charging state {} (fast probe)",
