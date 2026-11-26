@@ -63,7 +63,7 @@ DLLs.
 | `basilisk-power-cli.exe` | Battery + LED command line tool | [Download](https://github.com/Anu-bhav/razer-basilisk-power/releases/latest/download/basilisk-power-cli.exe) |
 | `led-picker.exe` | Mouse + dock colour picker | [Download](https://github.com/Anu-bhav/razer-basilisk-power/releases/latest/download/led-picker.exe) |
 
-Also attached: `BasiliskPower-1.0.4-win64.zip` with all three executables and the
+Also attached: `BasiliskPower-1.0.5-win64.zip` with all three executables and the
 Rainmeter skin, plus `SHA256SUMS.txt` for verification:
 
 ```powershell
@@ -175,6 +175,11 @@ tray menu or run `basilisk-power.exe --install-autostart` once.
   same single RF relay the tray reads through, so a long retry budget (the old
   5 × 250 ms, ~1.5 s per read) visibly stutters the cursor. Keeping each read
   well under half a second leaves the relay free for input.
+- **One read per device per 5 s, whatever asks.** Adaptive poll, hover, manual
+  refresh, the charge probe and the link probe are all coalesced to at most one
+  HID read per device every `MIN_READ_INTERVAL` (5 s). The number can update a
+  little later; the mouse must never hitch. This is the single most important
+  rule for a dock-paired mouse, whose input shares the relay.
 - **Echo-mismatch retries.** The dock often answers with a stale report before
   the mouse's response arrives; reads are retried (like the OpenRazer driver)
   instead of failing.
@@ -193,7 +198,7 @@ tray menu or run `basilisk-power.exe --install-autostart` once.
 - **Menu controls.** Status line, *Refresh now*, *Reconnect devices* (closes
   every HID handle and rescans after a replug or re-pair), *Notifications*
   on/off, *Open log*, *Start with Windows*, *Export diagnostics…*, and a
-  disabled `v1.0.4 (hash)` build line.
+  disabled `v1.0.5 (hash)` build line.
 - **Single instance.** A named mutex is taken *before* the log is opened, so a
   second launch exits quietly without truncating the first instance's log.
 - **Managed autostart.** One `HKCU` Run value (`Basilisk Power`), no shortcut,
@@ -505,7 +510,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$stage\verify.ps1"
 invariants behind these checks live in [`REGRESSIONS.md`](REGRESSIONS.md).
 
 Every executable carries the checked-out commit: `--version`, the tray menu and
-the startup log all report `1.0.4 (hash)`. Rebuild and redeploy after a commit
+the startup log all report `1.0.5 (hash)`. Rebuild and redeploy after a commit
 if you rely on that stamp.
 
 ## 2026-11 hardening pass
@@ -624,11 +629,4 @@ problems, odd ETAs, autostart — see
 ## Credits
 
 - [va0z-code](https://github.com/va0z-code) — Snake Charger fork base
-- [xzeldon](https://github.com/xzeldon) — original snake-charger
-- [OpenRazer](https://openrazer.github.io/) — dock relay driver reference and
-  the Mouse Dock Pro charging protocol
-- [OpenRGB](https://openrgb.org/) — colour-wheel layout inspiration; the
-  implementation here is independent Rust
-- Razer green `#44D62C` — obviously
-
-License: MIT (see [LICENSE](LICENSE)).
+- [
