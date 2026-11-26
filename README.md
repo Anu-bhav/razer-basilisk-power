@@ -7,7 +7,7 @@
 
 ![platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D4?logo=windows&logoColor=white)
 ![rust](https://img.shields.io/badge/Rust-stable-CE422B?logo=rust&logoColor=white)
-![tests](https://img.shields.io/badge/tests-69%20passing-44D62C)
+![tests](https://img.shields.io/badge/tests-82%20passing-44D62C)
 ![sources](https://img.shields.io/badge/sources-wired%20%7C%20dongle%20%7C%20dock-44D62C)
 ![license](https://img.shields.io/badge/license-MIT-44D62C)
 [![release](https://img.shields.io/github/v/release/Anu-bhav/razer-basilisk-power?color=44D62C&label=release)](https://github.com/Anu-bhav/razer-basilisk-power/releases/latest)
@@ -483,8 +483,8 @@ rollback, and `maintenance.rs` never age-deletes it.
 ## Verifying a change
 
 [`verify.ps1`](verify.ps1) is the regression gate. It builds both workspaces,
-checks `cargo fmt` and clippy in each, runs all **69 tests** (10 in the root
-workspace, 59 in the tray; the tray's tests are cross-compiled and executed
+checks `cargo fmt` and clippy in each, runs all **82 tests** (10 in the root
+workspace, 72 in the tray; the tray's tests are cross-compiled and executed
 natively on Windows), deploys, then checks:
 
 | Check | What it proves |

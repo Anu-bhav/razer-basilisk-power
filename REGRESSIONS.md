@@ -52,6 +52,17 @@ charging code.
   through: a long retry budget monopolises the relay and makes the cursor
   stutter while the mouse is being used. The worker re-enumerates devices every
   5 s.
+- **At most one read per device per 5 s, whatever asks.** Adaptive poll, hover,
+  manual refresh, the charge probe and the link probe are all gated on
+  `MIN_READ_INTERVAL` (5 s) per device. The user prefers a slightly later number
+  to a hitching mouse, so every trigger is coalesced rather than serviced
+  immediately. The first read after a device appears is never delayed.
+- **One scheduler decides every read.** `app/src/scheduler.rs` is the single,
+  pure decision point: given a read-only `DeviceView`, `next_read` returns the
+  cheapest due action (`Link` → `ChargeProbe` → `Full`) or `None`. The worker
+  only executes the returned `Decision`; it no longer ORs together five
+  independent timers. Any new read trigger must go through the scheduler, not a
+  new timer. The scheduler is unit-tested without hardware (see its `tests`).
 - **The heartbeat must not run on every routine poll.** It is a real USB
   round-trip that competes with input, so the tray asks only while a reading is
   stale or before the first read. When the link is already known up and the
@@ -128,9 +139,4 @@ charging code.
   A stale hash in a diagnostics bundle makes support harder.
 - **Autostart is one `HKCU` Run value** (`Basilisk Power`) managed by
   `--install-autostart` / `--uninstall-autostart` and the tray menu toggle.
-  Never write `HKLM`; no admin rights. The value stores an absolute path, so
-  re-install after moving the exe. Turning it off must leave no value behind.
-- **A diagnostics bundle must not disturb the running app.** It is handled
-  before the logger is initialized (which truncates the log), includes the
-  version/feed/LED/HID/widget/history state, filters the Rainmeter log to
-  BasiliskPower lines only, and its files are aged out after 7 days.
+  Never write `HKLM`; no admin rights. The value stores an absolute pat

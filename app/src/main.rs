@@ -12,6 +12,7 @@ mod manager;
 mod notify;
 mod options;
 mod reminder;
+mod scheduler;
 mod system;
 mod tray;
 mod wake;

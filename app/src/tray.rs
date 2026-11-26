@@ -19,6 +19,7 @@ use crate::{
     notify::Notify,
     options::Options,
     reminder::{Reminder, LOW_LEVEL},
+    scheduler::{self, DeviceView, ReadKind},
     system,
     wake::{Activity, WakeRetry},
 };
@@ -52,19 +53,9 @@ const DOCK_DETECT_IDLE: Duration = Duration::from_secs(8);
 /// The dock relay can alternate its charging flag on consecutive samples.
 /// Publish a transition only after this many reads agree.
 const CHARGING_CONFIRM_READS: u8 = 2;
-/// While charging, ask only for the charging flag on the fast loop so a
-/// lift-off is noticed in seconds instead of at the next battery read.
-const CHARGE_PROBE_INTERVAL: Duration = Duration::from_secs(5);
 /// Consecutive failed wake retries (after real user input) that trigger the
 /// automatic full HID handle reset.
 const WAKE_RESET_AFTER_FAILURES: u32 = 3;
-/// While the dock reports its RF link down, ask the heartbeat this often.
-/// The heartbeat is a ~120 ms dock-firmware command that does not touch the
-/// RF relay, so it stays cheap even while the mouse sleeps.
-const LINK_PROBE_INTERVAL: Duration = Duration::from_secs(5);
-/// While the user is away, check the link less often. Returning input forces
-/// a read immediately, so this only bounds background wake-up latency.
-const LINK_PROBE_IDLE_INTERVAL: Duration = Duration::from_secs(15);
 /// Minimum gap between automatic full HID resets for a device that keeps
 /// failing while its RF link is up.
 const RESET_COOLDOWN: Duration = Duration::from_secs(60);
@@ -72,14 +63,6 @@ const RESET_COOLDOWN: Duration = Duration::from_secs(60);
 /// wedged. At the 5 s active probe interval this is about two minutes; a
 /// genuinely sleeping mouse simply wakes to "RF link restored" and clears it.
 const LINK_DOWN_WARN_PROBES: u8 = 24;
-/// Minimum gap between HID reads of the same device, no matter what asked for
-/// one (adaptive poll, hover, manual refresh, charge probe, link probe).
-///
-/// A dock-paired mouse sends its input over the same single RF relay the tray
-/// reads through, so every read steals bandwidth from the cursor. The user
-/// would rather the number update a little later than feel the mouse hitch, so
-/// all triggers are coalesced to at most one read per device per this window.
-const MIN_READ_INTERVAL: Duration = Duration::from_secs(5);
 /// Window of level samples used for the time-to-full estimate.
 const CHARGE_HISTORY_WINDOW: Duration = Duration::from_secs(45 * 60);
 
@@ -602,11 +585,7 @@ impl TrayApp {
                 system_was_idle = idle_now;
 
                 let poll_due = force_refresh || now >= next_battery_poll;
-                let link_interval = if idle_now {
-                    LINK_PROBE_IDLE_INTERVAL
-                } else {
-                    LINK_PROBE_INTERVAL
-                };
+                let charge_probe_due = now >= next_charge_probe;
                 let mut read_this_round = false;
                 let mut reset_this_round = false;
                 for (&id, device) in guard.iter_mut() {
@@ -615,34 +594,58 @@ impl TrayApp {
                     if reset_this_round {
                         break;
                     }
-                    let needs_first_read = device.battery_level.is_none() && !device.stale;
-                    let wake_retry = device.stale && device.retry.due(now, input.last_input);
-                    // While the dock says the RF link is down, probe its
-                    // heartbeat on a timer instead of hammering the relay.
-                    // This is what makes recovery work even when the user
-                    // stops moving the mouse after one failed wake attempt.
-                    let link_probe_due = device.stale
-                        && device.is_dock
-                        && device
-                            .link_checked
-                            .is_none_or(|checked| now.duration_since(checked) >= link_interval);
-                    // Never read a device more often than MIN_READ_INTERVAL,
-                    // whatever asked (poll, hover, manual, link probe). A
-                    // dock-paired mouse shares one RF relay with its input, so
-                    // coalescing every trigger to one read per 5 s is what
-                    // keeps the cursor from hitching.
-                    let read_due = device
-                        .last_read
-                        .is_none_or(|t| now.duration_since(t) >= MIN_READ_INTERVAL);
-                    if read_due
-                        && (poll_due
-                            || connected_devices.contains(&id)
-                            || needs_first_read
-                            || wake_retry
-                            || link_probe_due)
-                    {
-                        let link_down = read_battery(&mut manager, id, device, options, now);
-                        device.last_read = Some(now);
+                    // Build the scheduler's read-only view of this device.
+                    let view = DeviceView {
+                        battery_level: device.battery_level,
+                        stale: device.stale,
+                        is_dock: device.is_dock,
+                        link_checked: device.link_checked,
+                        last_read: device.last_read,
+                        wants_charge_probe: device.wants_charge_probe(),
+                        poll_due,
+                        charge_probe_due,
+                        just_connected: connected_devices.contains(&id),
+                        wake_retry_due: device.retry.due(now, input.last_input),
+                        idle: idle_now,
+                    };
+                    let Some(decision) = view.next_read(now) else {
+                        continue;
+                    };
+                    let link_down = match decision.kind {
+                        ReadKind::Link => {
+                            // Heartbeat only: ask the dock, update link state,
+                            // and do not touch the RF relay.
+                            let down = read_link(&mut manager, id, device, now);
+                            device.last_read = Some(now);
+                            down
+                        }
+                        ReadKind::ChargeProbe => {
+                            // One-command charging check, no full read.
+                            let raw = manager.probe_charging(id);
+                            device.last_read = Some(now);
+                            if device.apply_charging_reading(raw) {
+                                info!(
+                                    "{}: charging state {} (fast probe)",
+                                    device.name,
+                                    if device.is_charging {
+                                        "started"
+                                    } else {
+                                        "stopped"
+                                    }
+                                );
+                                check_full(device, &notify, &notifications_enabled);
+                                ui_changed = true;
+                            }
+                            read_this_round = true;
+                            false
+                        }
+                        ReadKind::Full => {
+                            let down = read_battery(&mut manager, id, device, options, now);
+                            device.last_read = Some(now);
+                            down
+                        }
+                    };
+                    if matches!(decision.kind, ReadKind::Link | ReadKind::Full) {
                         if link_down {
                             // The dock answered its heartbeat; a down RF link
                             // is not an HID failure. Clear the streak so a
@@ -737,45 +740,12 @@ impl TrayApp {
                     trace!("Fullscreen app running, holding reminders");
                 }
 
-                // While charging, the battery level moves slowly; the event
-                // that must be noticed quickly is the mouse leaving the dock.
-                // Probe only the charging flag on the fast loop, at most once
-                // per CHARGE_PROBE_INTERVAL. The full battery read (with its
-                // level and time-to-full estimate) stays on the adaptive
-                // schedule. A confirmed flip below forces the next full read.
-                if now >= next_charge_probe {
-                    if !read_this_round && options.simulate_battery.is_none() {
-                        for (&id, device) in guard.iter_mut() {
-                            if device.stale || !device.wants_charge_probe() {
-                                continue;
-                            }
-                            // Same 5 s floor as every other read: the charge
-                            // probe is one HID command, but it still uses the
-                            // dock's shared RF relay.
-                            let read_due = device
-                                .last_read
-                                .is_none_or(|t| now.duration_since(t) >= MIN_READ_INTERVAL);
-                            if !read_due {
-                                continue;
-                            }
-                            let raw = manager.probe_charging(id);
-                            device.last_read = Some(now);
-                            if device.apply_charging_reading(raw) {
-                                info!(
-                                    "{}: charging state {} (fast probe)",
-                                    device.name,
-                                    if device.is_charging {
-                                        "started"
-                                    } else {
-                                        "stopped"
-                                    }
-                                );
-                                check_full(device, &notify, &notifications_enabled);
-                                ui_changed = true;
-                            }
-                        }
-                    }
-                    next_charge_probe = now + CHARGE_PROBE_INTERVAL;
+                // Advance the global charge-probe timer. The actual probe is
+                // scheduled per-device by the scheduler above (ReadKind::
+                // ChargeProbe), so it shares the same 5 s relay floor as every
+                // other read.
+                if charge_probe_due {
+                    next_charge_probe = now + scheduler::CHARGE_PROBE_INTERVAL;
                 }
 
                 // Charging changes are the interesting ones for the widget: the
@@ -1149,6 +1119,63 @@ fn zero_is_link_blip(simulated: bool) -> bool {
     !simulated
 }
 
+/// Heartbeat-only read: ask the dock whether its RF link is up and update the
+/// device's link state, without touching the RF relay.
+///
+/// Returns `true` when the link is down (a healthy dock with a sleeping mouse,
+/// not an HID failure).
+fn read_link(
+    manager: &mut DeviceManager,
+    id: u32,
+    device: &mut MemoryDevice,
+    now: Instant,
+) -> bool {
+    match manager.dock_link_state(id) {
+        Some(Ok(false)) => {
+            device.is_dock = true;
+            device.link_down_probes = device.link_down_probes.saturating_add(1);
+            if !device.stale {
+                info!("{}: RF link down (mouse asleep or off)", device.name);
+            }
+            if device.link_down_probes >= LINK_DOWN_WARN_PROBES && !device.link_down_warned {
+                device.link_down_warned = true;
+                warn!(
+                    "{}: RF link still down; if the mouse is on, the dock relay may be wedged",
+                    device.name
+                );
+            }
+            device.link_state = Some(false);
+            device.link_checked = Some(now);
+            device.stale = true;
+            // A relayed charging flag is meaningless without the link.
+            device.apply_charging_reading(None);
+            true
+        }
+        Some(Ok(true)) => {
+            device.is_dock = true;
+            if device.link_state == Some(false) {
+                info!("{}: RF link restored", device.name);
+            }
+            device.link_state = Some(true);
+            device.link_checked = Some(now);
+            device.link_down_probes = 0;
+            device.link_down_warned = false;
+            false
+        }
+        Some(Err(e)) => {
+            device.is_dock = true;
+            debug!("{}: dock link heartbeat failed: {e}", device.name);
+            device.link_state = None;
+            device.link_checked = Some(now);
+            false
+        }
+        None => {
+            device.is_dock = false;
+            false
+        }
+    }
+}
+
 fn read_battery(
     manager: &mut DeviceManager,
     id: u32,
@@ -1165,49 +1192,12 @@ fn read_battery(
     // known up and the device is healthy, go straight to the RF read: the
     // heartbeat is a real USB round-trip that competes with mouse input on a
     // dock-paired mouse, so it must not run on every routine poll.
-    if simulated.is_none() && (device.stale || device.link_state.is_none()) {
-        match manager.dock_link_state(id) {
-            Some(Ok(false)) => {
-                device.is_dock = true;
-                device.link_down_probes = device.link_down_probes.saturating_add(1);
-                if !device.stale {
-                    info!("{}: RF link down (mouse asleep or off)", device.name);
-                }
-                if device.link_down_probes >= LINK_DOWN_WARN_PROBES && !device.link_down_warned {
-                    device.link_down_warned = true;
-                    warn!(
-                        "{}: RF link still down; if the mouse is on, the dock relay may be wedged",
-                        device.name
-                    );
-                }
-                device.link_state = Some(false);
-                device.link_checked = Some(now);
-                device.stale = true;
-                // A relayed charging flag is meaningless without the link.
-                device.apply_charging_reading(None);
-                // The heartbeat was answered: this is not an RF read failure.
-                return true;
-            }
-            Some(Ok(true)) => {
-                device.is_dock = true;
-                if device.link_state == Some(false) {
-                    info!("{}: RF link restored", device.name);
-                }
-                device.link_state = Some(true);
-                device.link_checked = Some(now);
-                device.link_down_probes = 0;
-                device.link_down_warned = false;
-            }
-            Some(Err(e)) => {
-                device.is_dock = true;
-                debug!("{}: dock link heartbeat failed: {e}", device.name);
-                device.link_state = None;
-                device.link_checked = Some(now);
-            }
-            None => {
-                device.is_dock = false;
-            }
-        }
+    if simulated.is_none()
+        && (device.stale || device.link_state.is_none())
+        && read_link(manager, id, device, now)
+    {
+        // The heartbeat was answered: this is not an RF read failure.
+        return true;
     }
 
     // Charging is read first, while the dock's RF relay is idle. Reading the
