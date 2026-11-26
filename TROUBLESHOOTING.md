@@ -107,12 +107,14 @@ Two independent faults were addressed:
    that attempt — so moving the mouse once during the failure could leave the
    widget blank indefinitely. The tray now:
 
-   - asks the dock's own heartbeat (`00:bf`, transaction `0x3F`) first; the
-     dock answers in about 120 ms even while the mouse sleeps and tells us the
-     RF link is down without any RF traffic;
+   - asks the dock's own heartbeat (`00:bf`, transaction `0x3F`) only when the
+     reading is stale or before the first read — the dock answers in about
+     120 ms without touching the RF relay;
    - retries that heartbeat on a timer (5 s active, 15 s idle) regardless of
      new input, and reads the battery the moment the link returns;
-   - bounds RF commands to 5 tries × 250 ms and re-enumerates every 2 s;
+   - bounds RF commands to 3 tries × 150 ms (well under half a second) and
+     re-enumerates every 5 s, so a read never monopolises the dock's single RF
+     relay long enough to stutter the mouse;
    - resets and reopens the HID handles after 3 consecutive failed reads while
      the link is up, at most once a minute.
 
@@ -130,6 +132,23 @@ Two independent faults were addressed:
 
 If the symptom persists, use *Reconnect devices* from the tray menu — that
 performs the same handle reset on demand.
+
+## The mouse stutters or lags while you use it
+
+Symptom: the cursor hitches for a fraction of a second, repeatedly, while you
+are moving the mouse — even when it is not on the dock.
+
+Cause: when the mouse is paired to the Mouse Dock Pro, its input and the tray's
+battery reads share **one** RF relay. A tray read that retries for a long time
+(the old 5 × 250 ms budget, ~1.5 s) keeps that relay busy, so input packets are
+delayed and the cursor stutters. v1.0.4 shipped that long budget and also ran a
+heartbeat before every read; both made the contention worse.
+
+The tray now keeps each read well under half a second (3 tries × 150 ms),
+re-enumerates every 5 s, and only sends the heartbeat when the reading is stale
+or before the first read. If the stutter persists, check that no other tool
+(Synapse, OpenRGB, the LED picker mid-drag) is holding the dock's HID handle:
+only one process should talk to the relay at a time.
 
 ## The time estimates look odd
 

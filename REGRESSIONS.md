@@ -45,10 +45,17 @@ charging code.
   should not have to physically replug the dock for the ordinary sleep/wake
   case. The manual *Reconnect devices* menu item still works and is the faster
   path when the user already knows the dock was re-plugged.
-- **A dock read must stay bounded.** HID commands use at most 5 tries with
-  250 ms gaps (not 10 × 500 ms), so a sleeping mouse cannot block the worker
-  long enough to miss a quick unplug/replug. The worker re-enumerates devices
-  every 2 s.
+- **A dock read must stay bounded.** HID commands use at most 3 tries with
+  150 ms gaps (not 10 × 500 ms, and not the 5 × 250 ms that v1.0.4 shipped),
+  so a single read stays well under half a second. This matters because a
+  dock-paired mouse sends its input over the **same** RF relay the tray reads
+  through: a long retry budget monopolises the relay and makes the cursor
+  stutter while the mouse is being used. The worker re-enumerates devices every
+  5 s.
+- **The heartbeat must not run on every routine poll.** It is a real USB
+  round-trip that competes with input, so the tray asks only while a reading is
+  stale or before the first read. When the link is already known up and the
+  device is healthy, the read goes straight to the RF relay.
 - **A dock whose link stays down while the user is active is surfaced.** The
   tray logs one clear warning after about two minutes; `basilisk-power-cli
   --link` reports the same state on demand. If the mouse is demonstrably on and

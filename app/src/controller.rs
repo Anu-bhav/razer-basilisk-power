@@ -8,10 +8,12 @@ use crate::devices::RAZER_DEVICE_LIST;
 
 /// Keep the whole read bounded: the worker also watches for device
 /// re-enumeration, and a 10 × 500 ms retry storm used to block it long
-/// enough to miss a dock replug. Five tries matches the shared protocol
-/// implementation and still rides out a busy RF link.
-const MAX_TRIES_SEND: u8 = 5;
-const TIME_BETWEEN_SEND: Duration = Duration::from_millis(250);
+/// enough to miss a dock replug. Three tries with a short gap matches the
+/// shared protocol implementation's intent while keeping a single read well
+/// under half a second — a long retry budget monopolises the dock's single RF
+/// relay and makes the mouse itself stutter while it is being used.
+const MAX_TRIES_SEND: u8 = 3;
+const TIME_BETWEEN_SEND: Duration = Duration::from_millis(150);
 /// The Mouse Dock Pro relay usually answers within a few tens of ms once the
 /// RF link to the mouse is ready, so echo mismatches are retried on a shorter
 /// gap than busy/timeout replies.

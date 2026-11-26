@@ -160,16 +160,21 @@ tray menu or run `basilisk-power.exe --install-autostart` once.
 - **0 % glitch guard.** A “successful” 0 % report from the dock relay is an RF
   link blip, not an empty battery — the last known value is kept. Simulated
   runs are exempt, because 0 % there is a deliberate test input.
-- **Dock heartbeat before every read.** The Mouse Dock Pro answers a
+- **Dock heartbeat before a read that needs it.** The Mouse Dock Pro answers a
   dock-firmware heartbeat (`00:bf`, transaction `0x3F`) in about 120 ms without
-  touching the RF relay. The tray asks first: if the link is down (mouse
-  asleep, off, or out of range) it marks the reading stale and retries the
-  heartbeat every 5 s instead of spending seconds on RF timeouts. The moment
-  the link returns it reads the battery. This is what makes sleep/wake recovery
-  work even when the user moves the mouse once and then stops.
-- **Bounded HID retries.** A read uses at most 5 tries with 250 ms gaps, and
-  the worker re-enumerates every 2 s, so a slow or sleeping relay cannot block
-  the app long enough to miss a quick dock replug.
+  touching the RF relay. The tray asks only when it can change the outcome —
+  while the reading is stale, or before the first read. A down link (mouse
+  asleep, off, or out of range) marks the reading stale and retries the
+  heartbeat on a timer (5 s active / 15 s idle) instead of spending seconds on
+  RF timeouts; the moment the link returns it reads the battery. When the link
+  is already known up and the device is healthy, the tray skips the heartbeat
+  and goes straight to the RF read, because every extra USB round-trip competes
+  with mouse input on a dock-paired mouse.
+- **Bounded HID retries.** A read uses at most 3 tries with 150 ms gaps, and the
+  worker re-enumerates every 5 s. A dock-paired mouse sends its input over the
+  same single RF relay the tray reads through, so a long retry budget (the old
+  5 × 250 ms, ~1.5 s per read) visibly stutters the cursor. Keeping each read
+  well under half a second leaves the relay free for input.
 - **Echo-mismatch retries.** The dock often answers with a stale report before
   the mouse's response arrives; reads are retried (like the OpenRazer driver)
   instead of failing.
@@ -530,8 +535,8 @@ These are empirical facts about the Mouse Dock Pro relay channel
 
 1. The first read after opening the dock often needs several retries with a
    ~120 ms gap before the echo matches (stale echoes, status `0x02`). The tray
-   keeps a bounded 5-try budget; the heartbeat pre-check means a sleeping mouse
-   does not consume it.
+   keeps a bounded 3-try / 150 ms budget; the heartbeat pre-check means a
+   sleeping mouse does not consume it.
 2. The relayed **charging flag can lag** — correct within a few seconds of a
    dock/undock here, but not instantaneous. A failed read returns an error
    rather than a wrong value.

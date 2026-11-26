@@ -33,10 +33,15 @@ use tray_icon::{
 /// Fallback poll interval when no device answers (all stale / none present).
 const BATTERY_UPDATE_INTERVAL: Duration = Duration::from_secs(300);
 /// How often the worker re-enumerates HID devices and processes commands.
-/// This also bounds how quickly a dock replug is noticed; keep it short
+/// This also bounds how quickly a dock replug is noticed. Keep it short
 /// enough that a quick unplug/replug is not missed, but long enough that the
 /// feed is not rewritten unnecessarily (the feed itself coalesces writes).
-const DEVICE_FETCH_INTERVAL: Duration = Duration::from_secs(2);
+///
+/// 5 s is deliberate: each fetch re-enumerates the HID tree and re-reads the
+/// dock's link heartbeat, and both go through the same USB stack the mouse's
+/// input reports use. Polling faster than this measurably competes with input
+/// on a dock-paired mouse; 5 s still notices a replug within a few ticks.
+const DEVICE_FETCH_INTERVAL: Duration = Duration::from_secs(5);
 const CONNECTION_DEBOUNCE: Duration = Duration::from_secs(10);
 /// Minimum gap between hover-triggered refreshes, so keeping the cursor on
 /// the icon doesn't hammer the dock's RF relay.
@@ -1122,10 +1127,13 @@ fn read_battery(
     let simulated = options.simulate_battery;
 
     // The Mouse Dock Pro knows whether its RF link is up without touching the
-    // relay. Ask first: a sleeping/off mouse used to cost two full RF retry
-    // cycles per read, which starved the worker and made a quick dock replug
-    // invisible. A down link is a healthy dock, not a wedged handle.
-    if simulated.is_none() {
+    // relay. Ask first — but only when it can change the outcome: while the
+    // device is stale (a down link means "skip the expensive RF read") or
+    // before the first read (link state unknown). When the link is already
+    // known up and the device is healthy, go straight to the RF read: the
+    // heartbeat is a real USB round-trip that competes with mouse input on a
+    // dock-paired mouse, so it must not run on every routine poll.
+    if simulated.is_none() && (device.stale || device.link_state.is_none()) {
         match manager.dock_link_state(id) {
             Some(Ok(false)) => {
                 device.is_dock = true;
